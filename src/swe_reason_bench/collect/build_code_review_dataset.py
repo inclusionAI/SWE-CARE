@@ -120,12 +120,8 @@ def build_code_review_dataset(
                 head_commit_to_review = chosen_commit.get("oid", merge_commit)
                 head_commit_message_to_review = chosen_commit.get("messageHeadline", "")
 
-                # Create instance_id with commit SHA
-                commit_sha_short = (
-                    head_commit_to_review[:7] if head_commit_to_review else "unknown"
-                )
-                instance_id = (
-                    f"{repo_owner}__{repo_name}-{pull_number}:{commit_sha_short}"
+                instance_id = CodeReviewTaskInstance.generate_instance_id(
+                    repo, pull_number, head_commit_to_review
                 )
 
                 # Check if instance already exists and handle according to skip_existing flag
