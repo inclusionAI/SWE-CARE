@@ -70,8 +70,8 @@ query GetMergedPullRequests($owner: String!, $name: String!, $prCursor: String, 
           nodes {
             commit {
               oid
-              messageHeadline
-              messageBody
+              message
+              changedFilesIfAvailable
               authoredDate
               author {
                 user {
@@ -256,8 +256,8 @@ query GetCommits($prId: ID!, $cursor: String) {
         nodes {
           commit {
             oid
-            messageHeadline
-            messageBody
+            message
+            changedFilesIfAvailable
             authoredDate
             author {
               user {

@@ -1,11 +1,11 @@
 import json
-import random
 from pathlib import Path
-from typing import Any, Optional
+from typing import Optional
 
 from loguru import logger
 from tqdm import tqdm
 
+from swe_reason_bench.collect.evaluate_commits import PRCommitEvaluation
 from swe_reason_bench.schema.dataset import (
     CodeReviewTaskInstance,
     CodeReviewTaskMetadata,
@@ -19,30 +19,32 @@ from swe_reason_bench.utils.estimate import (
 )
 from swe_reason_bench.utils.extract_prs_data import (
     extract_hints,
-    extract_patch_between_commits,
-    extract_pr_patch,
     extract_problem_statement,
     extract_reference_review_comments,
-    get_repo_language,
+    fetch_patch_between_commits,
+    fetch_pr_patch,
+    fetch_repo_language,
 )
 
 
-def choose_intermediate_commit_as_review_commit(
-    commits: list[dict[str, Any]],
-) -> dict[str, Any]:
-    """Choose an intermediate commit to be reviewed. For now, returns a random commit."""
-    if not commits:
-        return {}
+def select_best_commit_to_review(
+    pr_commits_evaluation: PRCommitEvaluation,
+) -> str:
+    """Choose the best commit to be reviewed.
 
-    # TODO: Implement a more sophisticated commit selection logic
-    # For simplicity, choose a random commit for now
-    chosen_commit = random.choice(commits)
+    For now, returns the commit with the highest total score.
+    """
+    # Sort commits by total score in descending order
+    sorted_commits = sorted(
+        pr_commits_evaluation.commits, key=lambda x: x.total_score, reverse=True
+    )
 
-    return chosen_commit.get("commit", {})
+    return sorted_commits[0].commit_sha
 
 
 def build_code_review_dataset(
     graphql_prs_data_file: Path,
+    pr_commits_evaluation_file: Path,
     output_dir: Path = None,
     tokens: Optional[list[str]] = None,
     skip_existing: bool = False,
@@ -52,6 +54,7 @@ def build_code_review_dataset(
 
     Args:
         graphql_prs_data_file: Path to GraphQL PRs data file (output from get_graphql_prs_data)
+        pr_commits_evaluation_file: Path to PR commits evaluation file (output from evaluate_commits)
         output_dir: Directory to save the output data
         tokens: Optional list of GitHub tokens for API requests
         skip_existing: If True, skip processing existing instance_id in the output file.
@@ -80,6 +83,16 @@ def build_code_review_dataset(
 
     # Store all instances (existing + new/updated)
     all_instances = existing_instances.copy()
+
+    _pr_commits_evaluation: list[PRCommitEvaluation] = [
+        PRCommitEvaluation.from_json(e)
+        for e in pr_commits_evaluation_file.read_text().split("\n")
+        if e
+    ]
+
+    pr_commits_evaluation_map: dict[str, PRCommitEvaluation] = {
+        e.url: e for e in _pr_commits_evaluation
+    }
 
     # Count the number of lines in the input file
     with open(graphql_prs_data_file, "r") as input_f:
@@ -114,11 +127,24 @@ def build_code_review_dataset(
                 base_commit = pr_data.get("baseRefOid", "")
                 merge_commit = pr_data.get("headRefOid", "")
 
-                # Choose intermediate commit for review
+                assert url in pr_commits_evaluation_map, (
+                    f"PR URL {url} not found in {pr_commits_evaluation_file} data, did you run evaluate_commits?"
+                )
+
+                # Select the best commit for review
+                head_commit_to_review = select_best_commit_to_review(
+                    pr_commits_evaluation_map[url]
+                )
+                logger.info(f"Selected commit to review: {head_commit_to_review}")
+
+                # Find the commit message for the selected commit
+                head_commit_message_to_review = ""
                 commits = pr_data.get("commits", {}).get("nodes", [])
-                chosen_commit = choose_intermediate_commit_as_review_commit(commits)
-                head_commit_to_review = chosen_commit.get("oid", merge_commit)
-                head_commit_message_to_review = chosen_commit.get("messageHeadline", "")
+                for commit_node in commits:
+                    commit = commit_node.get("commit", {})
+                    if commit.get("oid") == head_commit_to_review:
+                        head_commit_message_to_review = commit.get("message", "")
+                        break
 
                 instance_id = CodeReviewTaskInstance.generate_instance_id(
                     repo, pull_number, head_commit_to_review
@@ -157,10 +183,10 @@ def build_code_review_dataset(
                 )
 
                 # Extract patches
-                patch_to_review = extract_patch_between_commits(
+                patch_to_review = fetch_patch_between_commits(
                     repo, base_commit, head_commit_to_review, tokens
                 )
-                merged_patch = extract_pr_patch(repo, pull_number, tokens)
+                merged_patch = fetch_pr_patch(repo, pull_number, tokens)
 
                 # Create metadata
                 metadata = CodeReviewTaskMetadata(
@@ -170,7 +196,7 @@ def build_code_review_dataset(
                 )
 
                 # Get language from the repo
-                language = get_repo_language(repo, tokens)
+                language = fetch_repo_language(repo, tokens)
 
                 # Create CodeReviewTask instance
                 task = CodeReviewTaskInstance(

@@ -7,6 +7,9 @@ from loguru import logger
 from swe_reason_bench.collect.build_code_review_dataset import (
     build_code_review_dataset,
 )
+from swe_reason_bench.collect.evaluate_commits import (
+    evaluate_commits,
+)
 from swe_reason_bench.collect.get_graphql_prs_data import (
     get_graphql_prs_data,
 )
@@ -21,6 +24,10 @@ SUBCOMMAND_MAP = {
     "get_graphql_prs_data": {
         "function": get_graphql_prs_data,
         "help": "Get PR data from GitHub GraphQL API",
+    },
+    "evaluate_commits": {
+        "function": evaluate_commits,
+        "help": "Evaluate commits in PRs using heuristic rules",
     },
     "build_code_review_dataset": {
         "function": build_code_review_dataset,
@@ -106,6 +113,16 @@ def get_args():
                 default=10,
                 help="Maximum number of PRs to fetch per page",
             )
+        case "evaluate_commits":
+            sub_parser = argparse.ArgumentParser(
+                prog=f"swe_reason_bench.collect {subcommand}"
+            )
+            sub_parser.add_argument(
+                "--graphql-prs-data-file",
+                type=Path,
+                required=True,
+                help="Path to GraphQL PRs data file",
+            )
         case "build_code_review_dataset":
             sub_parser = argparse.ArgumentParser(
                 prog=f"swe_reason_bench.collect {subcommand}"
@@ -113,7 +130,14 @@ def get_args():
             sub_parser.add_argument(
                 "--graphql-prs-data-file",
                 type=Path,
+                required=True,
                 help="Path to GraphQL PRs data file",
+            )
+            sub_parser.add_argument(
+                "--pr-commits-evaluation-file",
+                type=Path,
+                required=True,
+                help="Path to PR commits evaluation file",
             )
             sub_parser.add_argument(
                 "--skip-existing",
@@ -167,9 +191,15 @@ def main():
                     max_number=getattr(args, "max_number", 10),
                     **common_kwargs,
                 )
+            case "evaluate_commits":
+                function(
+                    graphql_prs_data_file=args.graphql_prs_data_file,
+                    **common_kwargs,
+                )
             case "build_code_review_dataset":
                 function(
                     graphql_prs_data_file=args.graphql_prs_data_file,
+                    pr_commits_evaluation_file=args.pr_commits_evaluation_file,
                     skip_existing=getattr(args, "skip_existing", False),
                     **common_kwargs,
                 )

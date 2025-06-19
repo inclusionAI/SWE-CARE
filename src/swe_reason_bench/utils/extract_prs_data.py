@@ -155,7 +155,7 @@ def extract_reference_review_comments(
     return reference_review_comments
 
 
-def extract_patch_between_commits(
+def fetch_patch_between_commits(
     repo: str, base_commit: str, head_commit: str, tokens: Optional[list[str]] = None
 ) -> str:
     """Extract patch between two commits."""
@@ -163,7 +163,7 @@ def extract_patch_between_commits(
     return github_api.get_patch(repo, base_commit=base_commit, head_commit=head_commit)
 
 
-def extract_pr_patch(
+def fetch_pr_patch(
     repo: str, pull_number: int, tokens: Optional[list[str]] = None
 ) -> str:
     """Extract patch for the entire PR."""
@@ -171,7 +171,7 @@ def extract_pr_patch(
     return github_api.get_patch(repo, pr_number=pull_number)
 
 
-def get_repo_language(repo: str, tokens: Optional[list[str]] = None) -> str:
+def fetch_repo_language(repo: str, tokens: Optional[list[str]] = None) -> str:
     """Get the language of a repository."""
 
     # To fix unhashable type: 'list' error thrown by lru_cache
