@@ -192,7 +192,7 @@ def build_code_review_dataset(
                         patch_to_review=patch_to_review,
                         reference_review_comments=reference_review_comments,
                     ),
-                    merge_commit=merge_commit,
+                    merged_commit=merge_commit,
                     merged_patch=merged_patch,
                     metadata=metadata,
                 )
