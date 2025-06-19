@@ -1,12 +1,11 @@
 import json
-import random
-import time
 from pathlib import Path
 from typing import Optional
 
-import requests
 from loguru import logger
 from tqdm import tqdm
+
+from swe_reason_bench.utils.github import GitHubAPI, MaxNodeLimitExceededError
 
 # GitHub GraphQL API endpoint
 GRAPHQL_ENDPOINT = "https://api.github.com/graphql"
@@ -25,14 +24,6 @@ MAIN_GRAPHQL_QUERY = """
 query GetMergedPullRequests($owner: String!, $name: String!, $prCursor: String, $maxNumber: Int!) {
   repository(owner: $owner, name: $name) {
     nameWithOwner
-    languages(first: 1, orderBy: {field: SIZE, direction: DESC}) {
-      edges {
-        node {
-          name
-        }
-        size
-      }
-    }
     pullRequests(states: [MERGED], first: $maxNumber, after: $prCursor, orderBy: {field: CREATED_AT, direction: DESC}) {
       totalCount
       pageInfo {
@@ -531,26 +522,7 @@ query GetThreadComments($threadId: ID!, $cursor: String) {
 """
 
 
-def execute_graphql_query(query: str, variables: dict, headers: dict) -> dict:
-    """Execute a GraphQL query with error handling."""
-    payload = {
-        "query": query,
-        "variables": variables,
-    }
-
-    response = requests.post(
-        GRAPHQL_ENDPOINT, headers=headers, data=json.dumps(payload)
-    )
-    response.raise_for_status()
-    results = response.json()
-
-    if "errors" in results:
-        raise ValueError(f"GraphQL errors: {results['errors']}")
-
-    return results
-
-
-def fetch_all_labels(pr_id: str, headers: dict, initial_data: dict) -> dict:
+def fetch_all_labels(pr_id: str, initial_data: dict, github_api: GitHubAPI) -> dict:
     """Fetch all labels for a PR using pagination."""
     all_labels = list(initial_data.get("nodes", []))
     cursor = initial_data.get("pageInfo", {}).get("endCursor")
@@ -559,7 +531,7 @@ def fetch_all_labels(pr_id: str, headers: dict, initial_data: dict) -> dict:
 
     while has_next_page and cursor:
         variables = {"prId": pr_id, "cursor": cursor}
-        result = execute_graphql_query(LABELS_QUERY, variables, headers)
+        result = github_api.execute_graphql_query(LABELS_QUERY, variables)
         page_data = result.get("data", {}).get("node", {}).get("labels", {})
 
         if not page_data or not page_data.get("nodes"):
@@ -569,7 +541,6 @@ def fetch_all_labels(pr_id: str, headers: dict, initial_data: dict) -> dict:
         page_info = page_data.get("pageInfo", {})
         has_next_page = page_info.get("hasNextPage", False)
         cursor = page_info.get("endCursor")
-        time.sleep(0.1)  # Rate limiting
 
     return {
         "nodes": all_labels,
@@ -578,7 +549,7 @@ def fetch_all_labels(pr_id: str, headers: dict, initial_data: dict) -> dict:
     }
 
 
-def fetch_all_commits(pr_id: str, headers: dict, initial_data: dict) -> dict:
+def fetch_all_commits(pr_id: str, initial_data: dict, github_api: GitHubAPI) -> dict:
     """Fetch all commits for a PR using pagination."""
     all_commits = list(initial_data.get("nodes", []))
     cursor = initial_data.get("pageInfo", {}).get("endCursor")
@@ -587,7 +558,7 @@ def fetch_all_commits(pr_id: str, headers: dict, initial_data: dict) -> dict:
 
     while has_next_page and cursor:
         variables = {"prId": pr_id, "cursor": cursor}
-        result = execute_graphql_query(COMMITS_QUERY, variables, headers)
+        result = github_api.execute_graphql_query(COMMITS_QUERY, variables)
         page_data = result.get("data", {}).get("node", {}).get("commits", {})
 
         if not page_data or not page_data.get("nodes"):
@@ -597,7 +568,6 @@ def fetch_all_commits(pr_id: str, headers: dict, initial_data: dict) -> dict:
         page_info = page_data.get("pageInfo", {})
         has_next_page = page_info.get("hasNextPage", False)
         cursor = page_info.get("endCursor")
-        time.sleep(0.1)  # Rate limiting
 
     return {
         "nodes": all_commits,
@@ -607,7 +577,7 @@ def fetch_all_commits(pr_id: str, headers: dict, initial_data: dict) -> dict:
 
 
 def fetch_all_review_comments(
-    review_id: str, headers: dict, initial_data: dict
+    review_id: str, initial_data: dict, github_api: GitHubAPI
 ) -> dict:
     """Fetch all review comments for a review using pagination."""
     all_comments = list(initial_data.get("nodes", []))
@@ -617,7 +587,7 @@ def fetch_all_review_comments(
 
     while has_next_page and cursor:
         variables = {"reviewId": review_id, "cursor": cursor}
-        result = execute_graphql_query(REVIEW_COMMENTS_QUERY, variables, headers)
+        result = github_api.execute_graphql_query(REVIEW_COMMENTS_QUERY, variables)
         page_data = result.get("data", {}).get("node", {}).get("comments", {})
 
         if not page_data or not page_data.get("nodes"):
@@ -627,7 +597,6 @@ def fetch_all_review_comments(
         page_info = page_data.get("pageInfo", {})
         has_next_page = page_info.get("hasNextPage", False)
         cursor = page_info.get("endCursor")
-        time.sleep(0.1)  # Rate limiting
 
     return {
         "nodes": all_comments,
@@ -636,7 +605,7 @@ def fetch_all_review_comments(
     }
 
 
-def fetch_all_reviews(pr_id: str, headers: dict, initial_data: dict) -> dict:
+def fetch_all_reviews(pr_id: str, initial_data: dict, github_api: GitHubAPI) -> dict:
     """Fetch all reviews for a PR using pagination, including all review comments."""
     all_reviews = []
 
@@ -644,7 +613,7 @@ def fetch_all_reviews(pr_id: str, headers: dict, initial_data: dict) -> dict:
     for review in initial_data.get("nodes", []):
         if review.get("comments", {}).get("pageInfo", {}).get("hasNextPage", False):
             review["comments"] = fetch_all_review_comments(
-                review["id"], headers, review.get("comments", {})
+                review["id"], review.get("comments", {}), github_api
             )
         all_reviews.append(review)
 
@@ -654,7 +623,7 @@ def fetch_all_reviews(pr_id: str, headers: dict, initial_data: dict) -> dict:
 
     while has_next_page and cursor:
         variables = {"prId": pr_id, "cursor": cursor}
-        result = execute_graphql_query(REVIEWS_QUERY, variables, headers)
+        result = github_api.execute_graphql_query(REVIEWS_QUERY, variables)
         page_data = result.get("data", {}).get("node", {}).get("reviews", {})
 
         if not page_data or not page_data.get("nodes"):
@@ -664,14 +633,13 @@ def fetch_all_reviews(pr_id: str, headers: dict, initial_data: dict) -> dict:
         for review in page_data.get("nodes", []):
             if review.get("comments", {}).get("pageInfo", {}).get("hasNextPage", False):
                 review["comments"] = fetch_all_review_comments(
-                    review["id"], headers, review.get("comments", {})
+                    review["id"], review.get("comments", {}), github_api
                 )
             all_reviews.append(review)
 
         page_info = page_data.get("pageInfo", {})
         has_next_page = page_info.get("hasNextPage", False)
         cursor = page_info.get("endCursor")
-        time.sleep(0.1)  # Rate limiting
 
     return {
         "nodes": all_reviews,
@@ -680,7 +648,9 @@ def fetch_all_reviews(pr_id: str, headers: dict, initial_data: dict) -> dict:
     }
 
 
-def fetch_all_issue_labels(issue_id: str, headers: dict, initial_data: dict) -> dict:
+def fetch_all_issue_labels(
+    issue_id: str, initial_data: dict, github_api: GitHubAPI
+) -> dict:
     """Fetch all labels for an issue using pagination."""
     all_labels = list(initial_data.get("nodes", []))
     cursor = initial_data.get("pageInfo", {}).get("endCursor")
@@ -689,7 +659,7 @@ def fetch_all_issue_labels(issue_id: str, headers: dict, initial_data: dict) -> 
 
     while has_next_page and cursor:
         variables = {"issueId": issue_id, "cursor": cursor}
-        result = execute_graphql_query(ISSUE_LABELS_QUERY, variables, headers)
+        result = github_api.execute_graphql_query(ISSUE_LABELS_QUERY, variables)
         page_data = result.get("data", {}).get("node", {}).get("labels", {})
 
         if not page_data or not page_data.get("nodes"):
@@ -699,7 +669,6 @@ def fetch_all_issue_labels(issue_id: str, headers: dict, initial_data: dict) -> 
         page_info = page_data.get("pageInfo", {})
         has_next_page = page_info.get("hasNextPage", False)
         cursor = page_info.get("endCursor")
-        time.sleep(0.1)  # Rate limiting
 
     return {
         "nodes": all_labels,
@@ -708,7 +677,9 @@ def fetch_all_issue_labels(issue_id: str, headers: dict, initial_data: dict) -> 
     }
 
 
-def fetch_all_issue_comments(issue_id: str, headers: dict, initial_data: dict) -> dict:
+def fetch_all_issue_comments(
+    issue_id: str, initial_data: dict, github_api: GitHubAPI
+) -> dict:
     """Fetch all comments for an issue using pagination."""
     all_comments = list(initial_data.get("nodes", []))
     cursor = initial_data.get("pageInfo", {}).get("endCursor")
@@ -717,7 +688,7 @@ def fetch_all_issue_comments(issue_id: str, headers: dict, initial_data: dict) -
 
     while has_next_page and cursor:
         variables = {"issueId": issue_id, "cursor": cursor}
-        result = execute_graphql_query(ISSUE_COMMENTS_QUERY, variables, headers)
+        result = github_api.execute_graphql_query(ISSUE_COMMENTS_QUERY, variables)
         page_data = result.get("data", {}).get("node", {}).get("comments", {})
 
         if not page_data or not page_data.get("nodes"):
@@ -727,7 +698,6 @@ def fetch_all_issue_comments(issue_id: str, headers: dict, initial_data: dict) -
         page_info = page_data.get("pageInfo", {})
         has_next_page = page_info.get("hasNextPage", False)
         cursor = page_info.get("endCursor")
-        time.sleep(0.1)  # Rate limiting
 
     return {
         "nodes": all_comments,
@@ -737,7 +707,7 @@ def fetch_all_issue_comments(issue_id: str, headers: dict, initial_data: dict) -
 
 
 def fetch_all_thread_comments(
-    thread_id: str, headers: dict, initial_data: dict
+    thread_id: str, initial_data: dict, github_api: GitHubAPI
 ) -> dict:
     """Fetch all comments for a review thread using pagination."""
     all_comments = list(initial_data.get("nodes", []))
@@ -747,7 +717,7 @@ def fetch_all_thread_comments(
 
     while has_next_page and cursor:
         variables = {"threadId": thread_id, "cursor": cursor}
-        result = execute_graphql_query(THREAD_COMMENTS_QUERY, variables, headers)
+        result = github_api.execute_graphql_query(THREAD_COMMENTS_QUERY, variables)
         page_data = result.get("data", {}).get("node", {}).get("comments", {})
 
         if not page_data or not page_data.get("nodes"):
@@ -757,7 +727,6 @@ def fetch_all_thread_comments(
         page_info = page_data.get("pageInfo", {})
         has_next_page = page_info.get("hasNextPage", False)
         cursor = page_info.get("endCursor")
-        time.sleep(0.1)  # Rate limiting
 
     return {
         "nodes": all_comments,
@@ -766,7 +735,9 @@ def fetch_all_thread_comments(
     }
 
 
-def fetch_all_review_threads(pr_id: str, headers: dict, initial_data: dict) -> dict:
+def fetch_all_review_threads(
+    pr_id: str, initial_data: dict, github_api: GitHubAPI
+) -> dict:
     """Fetch all review threads for a PR using pagination, including all comments for each thread."""
     all_threads = []
 
@@ -774,7 +745,7 @@ def fetch_all_review_threads(pr_id: str, headers: dict, initial_data: dict) -> d
     for thread in initial_data.get("nodes", []):
         if thread.get("comments", {}).get("pageInfo", {}).get("hasNextPage", False):
             thread["comments"] = fetch_all_thread_comments(
-                thread["id"], headers, thread.get("comments", {})
+                thread["id"], thread.get("comments", {}), github_api
             )
         all_threads.append(thread)
 
@@ -784,7 +755,7 @@ def fetch_all_review_threads(pr_id: str, headers: dict, initial_data: dict) -> d
 
     while has_next_page and cursor:
         variables = {"prId": pr_id, "cursor": cursor}
-        result = execute_graphql_query(REVIEW_THREADS_QUERY, variables, headers)
+        result = github_api.execute_graphql_query(REVIEW_THREADS_QUERY, variables)
         page_data = result.get("data", {}).get("node", {}).get("reviewThreads", {})
 
         if not page_data or not page_data.get("nodes"):
@@ -794,14 +765,13 @@ def fetch_all_review_threads(pr_id: str, headers: dict, initial_data: dict) -> d
         for thread in page_data.get("nodes", []):
             if thread.get("comments", {}).get("pageInfo", {}).get("hasNextPage", False):
                 thread["comments"] = fetch_all_thread_comments(
-                    thread["id"], headers, thread.get("comments", {})
+                    thread["id"], thread.get("comments", {}), github_api
                 )
             all_threads.append(thread)
 
         page_info = page_data.get("pageInfo", {})
         has_next_page = page_info.get("hasNextPage", False)
         cursor = page_info.get("endCursor")
-        time.sleep(0.1)  # Rate limiting
 
     return {
         "nodes": all_threads,
@@ -810,7 +780,9 @@ def fetch_all_review_threads(pr_id: str, headers: dict, initial_data: dict) -> d
     }
 
 
-def fetch_all_closing_issues(pr_id: str, headers: dict, initial_data: dict) -> dict:
+def fetch_all_closing_issues(
+    pr_id: str, initial_data: dict, github_api: GitHubAPI
+) -> dict:
     """Fetch all closing issues references for a PR using pagination, including all labels for each issue."""
     all_issues = []
 
@@ -818,12 +790,12 @@ def fetch_all_closing_issues(pr_id: str, headers: dict, initial_data: dict) -> d
     for issue in initial_data.get("nodes", []):
         if issue.get("labels", {}).get("pageInfo", {}).get("hasNextPage", False):
             issue["labels"] = fetch_all_issue_labels(
-                issue["id"], headers, issue.get("labels", {})
+                issue["id"], issue.get("labels", {}), github_api
             )
 
         if issue.get("comments", {}).get("pageInfo", {}).get("hasNextPage", False):
             issue["comments"] = fetch_all_issue_comments(
-                issue["id"], headers, issue.get("comments", {})
+                issue["id"], issue.get("comments", {}), github_api
             )
 
         all_issues.append(issue)
@@ -834,7 +806,7 @@ def fetch_all_closing_issues(pr_id: str, headers: dict, initial_data: dict) -> d
 
     while has_next_page and cursor:
         variables = {"prId": pr_id, "cursor": cursor}
-        result = execute_graphql_query(CLOSING_ISSUES_QUERY, variables, headers)
+        result = github_api.execute_graphql_query(CLOSING_ISSUES_QUERY, variables)
         page_data = (
             result.get("data", {}).get("node", {}).get("closingIssuesReferences", {})
         )
@@ -846,11 +818,11 @@ def fetch_all_closing_issues(pr_id: str, headers: dict, initial_data: dict) -> d
         for issue in page_data.get("nodes", []):
             if issue.get("labels", {}).get("pageInfo", {}).get("hasNextPage", False):
                 issue["labels"] = fetch_all_issue_labels(
-                    issue["id"], headers, issue.get("labels", {})
+                    issue["id"], issue.get("labels", {}), github_api
                 )
             if issue.get("comments", {}).get("pageInfo", {}).get("hasNextPage", False):
                 issue["comments"] = fetch_all_issue_comments(
-                    issue["id"], headers, issue.get("comments", {})
+                    issue["id"], issue.get("comments", {}), github_api
                 )
 
             all_issues.append(issue)
@@ -858,7 +830,6 @@ def fetch_all_closing_issues(pr_id: str, headers: dict, initial_data: dict) -> d
         page_info = page_data.get("pageInfo", {})
         has_next_page = page_info.get("hasNextPage", False)
         cursor = page_info.get("endCursor")
-        time.sleep(0.1)  # Rate limiting
 
     return {
         "nodes": all_issues,
@@ -867,7 +838,7 @@ def fetch_all_closing_issues(pr_id: str, headers: dict, initial_data: dict) -> d
     }
 
 
-def fetch_complete_pr_data(pr: dict, headers: dict) -> dict:
+def fetch_complete_pr_data(pr: dict, github_api: GitHubAPI) -> dict:
     """Fetch complete data for a single PR, including all nested paginated data."""
     pr_id = pr["id"]
     pr_number = pr.get("number", "unknown")
@@ -876,7 +847,7 @@ def fetch_complete_pr_data(pr: dict, headers: dict) -> dict:
     # Fetch all labels if there are more pages
     if pr.get("labels", {}).get("pageInfo", {}).get("hasNextPage", False):
         initial_labels = len(pr.get("labels", {}).get("nodes", []))
-        pr["labels"] = fetch_all_labels(pr_id, headers, pr.get("labels", {}))
+        pr["labels"] = fetch_all_labels(pr_id, pr.get("labels", {}), github_api)
         final_labels = len(pr["labels"].get("nodes", []))
         if final_labels > initial_labels:
             pagination_info.append(f"labels: {initial_labels}→{final_labels}")
@@ -884,7 +855,7 @@ def fetch_complete_pr_data(pr: dict, headers: dict) -> dict:
     # Fetch all commits if there are more pages
     if pr.get("commits", {}).get("pageInfo", {}).get("hasNextPage", False):
         initial_commits = len(pr.get("commits", {}).get("nodes", []))
-        pr["commits"] = fetch_all_commits(pr_id, headers, pr.get("commits", {}))
+        pr["commits"] = fetch_all_commits(pr_id, pr.get("commits", {}), github_api)
         final_commits = len(pr["commits"].get("nodes", []))
         if final_commits > initial_commits:
             pagination_info.append(f"commits: {initial_commits}→{final_commits}")
@@ -892,7 +863,7 @@ def fetch_complete_pr_data(pr: dict, headers: dict) -> dict:
     # Fetch all reviews and their comments if there are more pages
     if pr.get("reviews", {}).get("pageInfo", {}).get("hasNextPage", False):
         initial_reviews = len(pr.get("reviews", {}).get("nodes", []))
-        pr["reviews"] = fetch_all_reviews(pr_id, headers, pr.get("reviews", {}))
+        pr["reviews"] = fetch_all_reviews(pr_id, pr.get("reviews", {}), github_api)
         final_reviews = len(pr["reviews"].get("nodes", []))
         if final_reviews > initial_reviews:
             pagination_info.append(f"reviews: {initial_reviews}→{final_reviews}")
@@ -903,7 +874,7 @@ def fetch_complete_pr_data(pr: dict, headers: dict) -> dict:
             if review.get("comments", {}).get("pageInfo", {}).get("hasNextPage", False):
                 initial_comments = len(review.get("comments", {}).get("nodes", []))
                 all_comments = fetch_all_review_comments(
-                    review["id"], headers, review.get("comments", {})
+                    review["id"], review.get("comments", {}), github_api
                 )
                 review["comments"] = all_comments
                 final_comments = len(all_comments.get("nodes", []))
@@ -921,7 +892,7 @@ def fetch_complete_pr_data(pr: dict, headers: dict) -> dict:
     if pr.get("reviewThreads", {}).get("pageInfo", {}).get("hasNextPage", False):
         initial_threads = len(pr.get("reviewThreads", {}).get("nodes", []))
         pr["reviewThreads"] = fetch_all_review_threads(
-            pr_id, headers, pr.get("reviewThreads", {})
+            pr_id, pr.get("reviewThreads", {}), github_api
         )
         final_threads = len(pr["reviewThreads"].get("nodes", []))
         if final_threads > initial_threads:
@@ -933,7 +904,7 @@ def fetch_complete_pr_data(pr: dict, headers: dict) -> dict:
             if thread.get("comments", {}).get("pageInfo", {}).get("hasNextPage", False):
                 initial_comments = len(thread.get("comments", {}).get("nodes", []))
                 all_comments = fetch_all_thread_comments(
-                    thread["id"], headers, thread.get("comments", {})
+                    thread["id"], thread.get("comments", {}), github_api
                 )
                 thread["comments"] = all_comments
                 final_comments = len(all_comments.get("nodes", []))
@@ -955,7 +926,7 @@ def fetch_complete_pr_data(pr: dict, headers: dict) -> dict:
     ):
         initial_issues = len(pr.get("closingIssuesReferences", {}).get("nodes", []))
         pr["closingIssuesReferences"] = fetch_all_closing_issues(
-            pr_id, headers, pr.get("closingIssuesReferences", {})
+            pr_id, pr.get("closingIssuesReferences", {}), github_api
         )
         final_issues = len(pr["closingIssuesReferences"].get("nodes", []))
         if final_issues > initial_issues:
@@ -967,7 +938,7 @@ def fetch_complete_pr_data(pr: dict, headers: dict) -> dict:
             if issue.get("labels", {}).get("pageInfo", {}).get("hasNextPage", False):
                 initial_labels = len(issue.get("labels", {}).get("nodes", []))
                 all_labels = fetch_all_issue_labels(
-                    issue["id"], headers, issue.get("labels", {})
+                    issue["id"], issue.get("labels", {}), github_api
                 )
                 issue["labels"] = all_labels
                 final_labels = len(all_labels.get("nodes", []))
@@ -1016,22 +987,12 @@ def get_repo_pr_data(
 
     repo_owner, repo_name = repo.split("/", 1)
 
-    # Setup headers
-    headers = {
-        "Content-Type": "application/json",
-    }
-
-    if tokens:
-        # Use a random token if provided
-        token = random.choice(tokens)
-        headers["Authorization"] = f"Bearer {token}"
+    # Create GitHub API instance
+    github_api = GitHubAPI(tokens=tokens)
 
     all_prs = []
     pr_cursor = None
-    retry_count = 0
-    max_retries = 3
     current_page_size = min(max_number, 20)  # Start with conservative page size
-    repository_language = None
 
     while True:
         variables = {
@@ -1041,51 +1002,26 @@ def get_repo_pr_data(
             "prCursor": pr_cursor,
         }
 
-        payload = {
-            "query": MAIN_GRAPHQL_QUERY,
-            "variables": variables,
-        }
+        try:
+            results = github_api.execute_graphql_query(MAIN_GRAPHQL_QUERY, variables)
+        except MaxNodeLimitExceededError as e:
+            logger.warning(f"Max node limit exceeded for {repo}: {e}")
+            if current_page_size > 1:
+                # Reduce page size and retry
+                current_page_size = max(1, current_page_size // 2)
+                logger.info(
+                    f"Hit node limit, reducing page size to {current_page_size} for {repo}"
+                )
+                continue
+            else:
+                logger.info(f"Cannot reduce page size further for {repo}, skipping...")
+                break
 
         try:
-            response = requests.post(
-                GRAPHQL_ENDPOINT, headers=headers, data=json.dumps(payload)
-            )
-            response.raise_for_status()  # Raise an exception for bad status codes
-            results = response.json()
-
-            # Check for GraphQL errors
-            if "errors" in results:
-                # Check if it's a node limit error that we can handle
-                for error in results["errors"]:
-                    if error.get("type") == "MAX_NODE_LIMIT_EXCEEDED":
-                        if current_page_size > 1:
-                            # Reduce page size and retry
-                            current_page_size = max(1, current_page_size // 2)
-                            logger.info(
-                                f"Hit node limit, reducing page size to {current_page_size} for {repo}"
-                            )
-                            continue
-                        else:
-                            logger.info(
-                                f"Cannot reduce page size further for {repo}, skipping..."
-                            )
-                            return all_prs
-
-                raise ValueError(f"GraphQL errors for {repo}: {results['errors']}")
-
             # Extract PR data
             repository_data = results.get("data", {}).get("repository")
             if not repository_data:
                 raise ValueError(f"No repository data found for {repo}")
-
-            # Get repository primary language
-            if not repository_language:
-                repository_language = (
-                    repository_data.get("languages", {})
-                    .get("edges", [{}])[0]
-                    .get("node", {})
-                    .get("name")
-                )
 
             pr_data = repository_data.get("pullRequests", {})
             prs = pr_data.get("nodes", [])
@@ -1115,11 +1051,8 @@ def get_repo_pr_data(
                         logger.info("✗ (no closing issues)")
                         continue
 
-                    complete_pr = fetch_complete_pr_data(pr, headers)
+                    complete_pr = fetch_complete_pr_data(pr, github_api)
                     complete_prs.append(complete_pr)
-
-                    # Add small delay between nested requests
-                    time.sleep(0.05)
                 except Exception as e:
                     logger.warning(
                         f"✗ Warning: Failed to fetch complete data for PR #{pr.get('number', 'unknown')}: {e}"
@@ -1143,9 +1076,6 @@ def get_repo_pr_data(
                 # all_prs = all_prs[:max_number]  # Trim to exact max_number
                 break
 
-            # Reset retry count on successful request
-            retry_count = 0
-
             # Check if there are more pages
             page_info = pr_data.get("pageInfo", {})
             if not page_info.get("hasNextPage", False):
@@ -1153,48 +1083,11 @@ def get_repo_pr_data(
 
             pr_cursor = page_info.get("endCursor")
 
-            # Check rate limiting
-            if "X-RateLimit-Remaining" in response.headers:
-                remaining = int(response.headers["X-RateLimit-Remaining"])
-                if remaining < 10:  # If less than 10 requests remaining
-                    reset_time = int(response.headers.get("X-RateLimit-Reset", 0))
-                    current_time = int(time.time())
-                    wait_time = max(0, reset_time - current_time)
-                    if wait_time > 0:
-                        logger.info(
-                            f"Rate limit approaching. Waiting {wait_time} seconds..."
-                        )
-                        time.sleep(wait_time)
+        except Exception as e:
+            logger.error(f"Error fetching PR data for {repo}: {e}")
+            break
 
-            # Small delay to be respectful to the API
-            time.sleep(0.1)
-
-        except requests.exceptions.RequestException as e:
-            retry_count += 1
-            logger.error(
-                f"Error fetching PR data for {repo} (attempt {retry_count}/{max_retries}): {e}"
-            )
-
-            if retry_count >= max_retries:
-                logger.error(
-                    f"Max retries ({max_retries}) reached for {repo}. Breaking loop."
-                )
-                break
-
-            if hasattr(e, "response") and e.response is not None:
-                if e.response.status_code == 403:
-                    logger.warning(
-                        "Rate limit exceeded. Try using GitHub tokens or waiting."
-                    )
-
-            # Wait before retrying
-            time.sleep(2**retry_count)  # Exponential backoff
-
-    logger.info(
-        f"Collected {len(all_prs)} PRs with closing issues for {repo} ({repository_language})"
-    )
-    for pr in all_prs:
-        pr["repository_language"] = repository_language
+    logger.info(f"Collected {len(all_prs)} PRs with closing issues for {repo}")
     return all_prs
 
 

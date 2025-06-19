@@ -23,6 +23,7 @@ from swe_reason_bench.utils.extract_prs_data import (
     extract_pr_patch,
     extract_problem_statement,
     extract_reference_review_comments,
+    get_repo_language,
 )
 
 
@@ -107,7 +108,6 @@ def build_code_review_dataset(
 
                 # Extract basic fields first
                 pull_number = pr_data.get("number")
-                language = pr_data.get("repository_language", "")
                 title = pr_data.get("title", "")
                 body = pr_data.get("body", "")
                 created_at = pr_data.get("createdAt", "")
@@ -168,6 +168,9 @@ def build_code_review_dataset(
                     difficulty=estimate_difficulty(pr_data),
                     estimated_review_effort=estimate_review_effort(pr_data),
                 )
+
+                # Get language from the repo
+                language = get_repo_language(repo, tokens)
 
                 # Create CodeReviewTask instance
                 task = CodeReviewTaskInstance(

@@ -1,11 +1,11 @@
-import random
 from datetime import datetime
+from functools import lru_cache
 from typing import Any, Optional
 
-import requests
 from loguru import logger
 
 from swe_reason_bench.schema.dataset import ReferenceReviewComment
+from swe_reason_bench.utils.github import GitHubAPI
 
 
 def extract_problem_statement(closing_issues: list[dict[str, Any]]) -> str:
@@ -159,53 +159,47 @@ def extract_patch_between_commits(
     repo: str, base_commit: str, head_commit: str, tokens: Optional[list[str]] = None
 ) -> str:
     """Extract patch between two commits."""
-    patch_to_review = ""
-
-    try:
-        # Setup headers
-        headers = {
-            "Content-Type": "application/json",
-        }
-
-        if tokens:
-            # Use a random token if provided
-            token = random.choice(tokens)
-            headers["Authorization"] = f"Bearer {token}"
-
-        # Get patch for specific commit range
-        patch_url = (
-            f"https://github.com/{repo}/compare/{base_commit}...{head_commit}.diff"
-        )
-        response = requests.get(patch_url, timeout=30, headers=headers)
-        if response.status_code == 200:
-            patch_to_review = response.text
-            return patch_to_review
-    except Exception as e:
-        logger.error(
-            f"Failed to fetch patch for {repo} {base_commit}...{head_commit}: {e}"
-        )
-        return ""
+    github_api = GitHubAPI(tokens=tokens)
+    return github_api.get_patch(repo, base_commit=base_commit, head_commit=head_commit)
 
 
 def extract_pr_patch(
     repo: str, pull_number: int, tokens: Optional[list[str]] = None
 ) -> str:
     """Extract patch for the entire PR."""
-    try:
-        # Setup headers
-        headers = {
-            "Content-Type": "application/json",
-        }
+    github_api = GitHubAPI(tokens=tokens)
+    return github_api.get_patch(repo, pr_number=pull_number)
 
-        if tokens:
-            # Use a random token if provided
-            token = random.choice(tokens)
-            headers["Authorization"] = f"Bearer {token}"
 
-        patch_url = f"https://github.com/{repo}/pull/{pull_number}.diff"
-        response = requests.get(patch_url, timeout=30, headers=headers)
-        if response.status_code == 200:
-            return response.text
-    except Exception as e:
-        logger.error(f"Failed to fetch patch for {repo} PR #{pull_number}: {e}")
-        return ""
+def get_repo_language(repo: str, tokens: Optional[list[str]] = None) -> str:
+    """Get the language of a repository."""
+
+    # To fix unhashable type: 'list' error thrown by lru_cache
+    @lru_cache(maxsize=128)
+    def _get_repo_language(repo: str, tokens: Optional[tuple[str, ...]] = None) -> str:
+        """Get the language of a repository."""
+        github_api = GitHubAPI(tokens=tokens)
+
+        # Try to get repository info first
+        response = github_api.call_api(f"repos/{repo}")
+        repo_data = response.json()
+
+        if "language" in repo_data and repo_data["language"]:
+            return repo_data["language"]
+        else:
+            logger.warning(
+                f"Repository {repo} does not have a language field, trying to get primary language"
+            )
+            # Get languages endpoint
+            response = github_api.call_api(f"repos/{repo}/languages")
+            languages = response.json()
+
+            if languages:
+                return max(languages, key=languages.get)
+            else:
+                raise Exception(f"Repository {repo} has no languages: {languages}")
+
+    if tokens:
+        tokens = tuple(tokens)
+
+    return _get_repo_language(repo, tokens)

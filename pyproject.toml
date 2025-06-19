@@ -10,7 +10,8 @@ requires-python = ">=3.10"
 dependencies = [
     "dataclasses-json>=0.6.7",
     "loguru>=0.7.2",
-    "requests>=2.31.0",
+    "requests[socks]>=2.31.0",
+    "tenacity>=9.0.0",
     "tqdm>=4.66.0",
 ]
 
