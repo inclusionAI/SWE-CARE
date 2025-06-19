@@ -105,9 +105,28 @@ def build_code_review_dataset(
                 repo_name = url_parts[-3]
                 repo = f"{repo_owner}/{repo_name}"
 
-                # Create instance_id
+                # Extract basic fields first
                 pull_number = pr_data.get("number")
-                instance_id = f"{repo_owner}__{repo_name}-{pull_number}"
+                language = pr_data.get("repository_language", "")
+                title = pr_data.get("title", "")
+                body = pr_data.get("body", "")
+                created_at = pr_data.get("createdAt", "")
+                base_commit = pr_data.get("baseRefOid", "")
+                merge_commit = pr_data.get("headRefOid", "")
+
+                # Choose intermediate commit for review
+                commits = pr_data.get("commits", {}).get("nodes", [])
+                chosen_commit = choose_intermediate_commit_as_review_commit(commits)
+                head_commit_to_review = chosen_commit.get("oid", merge_commit)
+                head_commit_message_to_review = chosen_commit.get("messageHeadline", "")
+
+                # Create instance_id with commit SHA
+                commit_sha_short = (
+                    head_commit_to_review[:7] if head_commit_to_review else "unknown"
+                )
+                instance_id = (
+                    f"{repo_owner}__{repo_name}-{pull_number}:{commit_sha_short}"
+                )
 
                 # Check if instance already exists and handle according to skip_existing flag
                 if instance_id in existing_instances:
@@ -116,14 +135,6 @@ def build_code_review_dataset(
                         continue
                     else:
                         logger.info(f"Replacing existing instance {instance_id}")
-
-                # Extract basic fields
-                language = pr_data.get("repository_language", "")
-                title = pr_data.get("title", "")
-                body = pr_data.get("body", "")
-                created_at = pr_data.get("createdAt", "")
-                base_commit = pr_data.get("baseRefOid", "")
-                merge_commit = pr_data.get("headRefOid", "")
 
                 # Extract problem statement from closing issues
                 closing_issues = pr_data.get("closingIssuesReferences", {}).get(
@@ -140,12 +151,6 @@ def build_code_review_dataset(
                         body=issue.get("body", ""),
                     )
                     resolved_issues.append(resolved_issue)
-
-                # Choose intermediate commit for review
-                commits = pr_data.get("commits", {}).get("nodes", [])
-                chosen_commit = choose_intermediate_commit_as_review_commit(commits)
-                head_commit_to_review = chosen_commit.get("oid", merge_commit)
-                head_commit_message_to_review = chosen_commit.get("messageHeadline", "")
 
                 # Extract hints (comments from issues before the chosen commit)
                 hints_text = extract_hints(pr_data, head_commit_to_review)
