@@ -4,16 +4,16 @@ from pathlib import Path
 
 from loguru import logger
 
-from swe_reason_bench.collect.build_code_review_dataset import (
+from swe_care.collect.build_code_review_dataset import (
     build_code_review_dataset,
 )
-from swe_reason_bench.collect.evaluate_commits import (
+from swe_care.collect.evaluate_commits import (
     evaluate_commits,
 )
-from swe_reason_bench.collect.get_graphql_prs_data import (
+from swe_care.collect.get_graphql_prs_data import (
     get_graphql_prs_data,
 )
-from swe_reason_bench.collect.get_top_repos import get_top_repos
+from swe_care.collect.get_top_repos import get_top_repos
 
 # Mapping of subcommands to their function names
 SUBCOMMAND_MAP = {
@@ -54,7 +54,7 @@ def get_args():
     if subcommand is None:
         # No subcommand found, use normal argparse
         parser = argparse.ArgumentParser(
-            prog="swe_reason_bench.collect",
+            prog="swe_care.collect",
             description="Data collection tools for SWE Reason Bench",
         )
         parser.add_argument(
@@ -90,16 +90,12 @@ def get_args():
     # Create the appropriate subcommand parser
     match subcommand:
         case "get_top_repos":
-            sub_parser = argparse.ArgumentParser(
-                prog=f"swe_reason_bench.collect {subcommand}"
-            )
+            sub_parser = argparse.ArgumentParser(prog=f"swe_care.collect {subcommand}")
             sub_parser.add_argument("--language", type=str, required=True)
             sub_parser.add_argument("--top_n", type=int, required=True)
 
         case "get_graphql_prs_data":
-            sub_parser = argparse.ArgumentParser(
-                prog=f"swe_reason_bench.collect {subcommand}"
-            )
+            sub_parser = argparse.ArgumentParser(prog=f"swe_care.collect {subcommand}")
             repo_group = sub_parser.add_mutually_exclusive_group(required=True)
             repo_group.add_argument(
                 "--repo-file", type=Path, help="Path to repository file"
@@ -114,9 +110,7 @@ def get_args():
                 help="Maximum number of PRs to fetch per page",
             )
         case "evaluate_commits":
-            sub_parser = argparse.ArgumentParser(
-                prog=f"swe_reason_bench.collect {subcommand}"
-            )
+            sub_parser = argparse.ArgumentParser(prog=f"swe_care.collect {subcommand}")
             sub_parser.add_argument(
                 "--graphql-prs-data-file",
                 type=Path,
@@ -124,9 +118,7 @@ def get_args():
                 help="Path to GraphQL PRs data file",
             )
         case "build_code_review_dataset":
-            sub_parser = argparse.ArgumentParser(
-                prog=f"swe_reason_bench.collect {subcommand}"
-            )
+            sub_parser = argparse.ArgumentParser(prog=f"swe_care.collect {subcommand}")
             sub_parser.add_argument(
                 "--graphql-prs-data-file",
                 type=Path,

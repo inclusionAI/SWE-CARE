@@ -7,7 +7,7 @@ from typing import Any
 from dataclasses_json import dataclass_json
 from loguru import logger
 
-from swe_reason_bench.utils.extract_prs_data import extract_reference_review_comments
+from swe_care.utils.extract_prs_data import extract_reference_review_comments
 
 
 @dataclass_json

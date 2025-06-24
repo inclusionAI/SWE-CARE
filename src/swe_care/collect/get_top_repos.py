@@ -4,7 +4,7 @@ from typing import Optional
 
 from loguru import logger
 
-from swe_reason_bench.utils.github import GitHubAPI
+from swe_care.utils.github import GitHubAPI
 
 
 def get_top_repos(

@@ -5,7 +5,7 @@ from typing import Optional
 from loguru import logger
 from tqdm import tqdm
 
-from swe_reason_bench.utils.github import GitHubAPI, MaxNodeLimitExceededError
+from swe_care.utils.github import GitHubAPI, MaxNodeLimitExceededError
 
 # GitHub GraphQL API endpoint
 GRAPHQL_ENDPOINT = "https://api.github.com/graphql"

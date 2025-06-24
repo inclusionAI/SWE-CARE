@@ -5,7 +5,7 @@ from pathlib import Path
 from loguru import logger
 from openai import OpenAI
 
-from swe_reason_bench.harness.code_review_eval import EvaluatorType, code_review_eval
+from swe_care.harness.code_review_eval import EvaluatorType, code_review_eval
 
 # Mapping of subcommands to their function names
 SUBCOMMAND_MAP = {
@@ -34,7 +34,7 @@ def get_args():
     if subcommand is None:
         # No subcommand found, use normal argparse
         parser = argparse.ArgumentParser(
-            prog="swe_reason_bench.harness",
+            prog="swe_care.harness",
             description="Evaluation tools for SWE Reason Bench",
         )
         parser.add_argument(
@@ -62,9 +62,7 @@ def get_args():
     # Create the appropriate subcommand parser
     match subcommand:
         case "code_review_eval":
-            sub_parser = argparse.ArgumentParser(
-                prog=f"swe_reason_bench.harness {subcommand}"
-            )
+            sub_parser = argparse.ArgumentParser(prog=f"swe_care.harness {subcommand}")
             sub_parser.add_argument(
                 "--dataset-file",
                 type=Path,

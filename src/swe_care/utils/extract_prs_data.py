@@ -5,8 +5,8 @@ from typing import Any, Optional
 
 from loguru import logger
 
-from swe_reason_bench.schema.dataset import ReferenceReviewComment
-from swe_reason_bench.utils.github import GitHubAPI
+from swe_care.schema.dataset import ReferenceReviewComment
+from swe_care.utils.github import GitHubAPI
 
 
 def extract_problem_statement(closing_issues: list[dict[str, Any]]) -> str:

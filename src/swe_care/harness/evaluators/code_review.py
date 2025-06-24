@@ -4,12 +4,12 @@ from typing import Any
 
 from openai import OpenAI
 
-from swe_reason_bench.harness.evaluators import Evaluator
-from swe_reason_bench.schema.dataset import (
+from swe_care.harness.evaluators import Evaluator
+from swe_care.schema.dataset import (
     CodeReviewTaskInstance,
     ReferenceReviewComment,
 )
-from swe_reason_bench.schema.evaluation import CodeReviewPrediction
+from swe_care.schema.evaluation import CodeReviewPrediction
 
 EVALUATION_PROMPT = """\
 Your task is to evaluate the quliaty of the code review. Below are the required fields of a standard code review:

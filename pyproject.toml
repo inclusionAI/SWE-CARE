@@ -1,5 +1,5 @@
 [project]
-name = "swe-reason-bench"
+name = "swe-care"
 version = "0.1.0"
 description = "Add your description here"
 readme = "README.md"
@@ -17,7 +17,7 @@ dependencies = [
 ]
 
 [project.scripts]
-swe-reason-bench = "swe_reason_bench:main"
+swe-care = "swe_care.collect:main"
 
 [build-system]
 requires = ["hatchling"]

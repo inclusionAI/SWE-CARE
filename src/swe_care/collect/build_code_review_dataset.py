@@ -5,19 +5,19 @@ from typing import Optional
 from loguru import logger
 from tqdm import tqdm
 
-from swe_reason_bench.collect.evaluate_commits import PRCommitEvaluation
-from swe_reason_bench.schema.dataset import (
+from swe_care.collect.evaluate_commits import PRCommitEvaluation
+from swe_care.schema.dataset import (
     CodeReviewTaskInstance,
     CodeReviewTaskMetadata,
     CommitToReview,
     ResolvedIssue,
 )
-from swe_reason_bench.utils.estimate import (
+from swe_care.utils.estimate import (
     estimate_difficulty,
     estimate_problem_domains,
     estimate_review_effort,
 )
-from swe_reason_bench.utils.extract_prs_data import (
+from swe_care.utils.extract_prs_data import (
     extract_hints,
     extract_problem_statement,
     extract_reference_review_comments,

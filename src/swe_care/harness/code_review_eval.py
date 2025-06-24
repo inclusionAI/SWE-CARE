@@ -6,13 +6,13 @@ from loguru import logger
 from openai import OpenAI
 from tqdm import tqdm
 
-from swe_reason_bench.harness.evaluators import Evaluator
-from swe_reason_bench.harness.evaluators.code_review import (
+from swe_care.harness.evaluators import Evaluator
+from swe_care.harness.evaluators.code_review import (
     LLMEvaluator,
     RuleBasedEvaluator,
 )
-from swe_reason_bench.schema.dataset import CodeReviewTaskInstance
-from swe_reason_bench.schema.evaluation import (
+from swe_care.schema.dataset import CodeReviewTaskInstance
+from swe_care.schema.evaluation import (
     CodeReviewEvaluationResult,
     CodeReviewPrediction,
     EvaluatorResult,
