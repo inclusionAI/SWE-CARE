@@ -49,10 +49,10 @@ class LLMEvaluator(Evaluator):
 
     def _parse_json(self, text: str) -> dict:
         # Try to find JSON string within triple backticks, assuming there are possibly multiple json markdown string
-        matches = re.finditer(r"```json(.*?)```", text, re.DOTALL)
+        matches = re.finditer(r"```(json)?(.*?)```", text, re.DOTALL)
         for match in matches:
             try:
-                return json.loads(match.group(1))
+                return json.loads(match.group(2))
             except json.JSONDecodeError:
                 continue
 
