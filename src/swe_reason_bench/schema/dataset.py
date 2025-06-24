@@ -144,3 +144,39 @@ class CodeReviewTaskInstance:
         repo_formatted = repo.replace("/", "__")
         commit_short = commit[:7]
         return f"{repo_formatted}-{pull_number}@{commit_short}"
+
+    @classmethod
+    def parse_instance_id(cls, instance_id: str) -> tuple[str, int, str]:
+        """Parse an instance ID into repo, pull number, and commit.
+
+        Args:
+            instance_id: The instance ID to parse
+
+        Returns:
+            A tuple of repo, pull number, and commit
+
+        Raises:
+            ValueError: If the instance ID format is invalid
+        """
+        if "@" not in instance_id:
+            raise ValueError(
+                f"Invalid instance ID format: {instance_id}. Expected format: repo_owner__repo_name-PR-number@commit_sha_short"
+            )
+
+        repo_pr_part, commit = instance_id.split("@", 1)
+
+        if "-" not in repo_pr_part:
+            raise ValueError(
+                f"Invalid instance ID format: {instance_id}. Expected format: repo_owner__repo_name-PR-number@commit_sha_short"
+            )
+
+        repo_formatted, pull_number_str = repo_pr_part.rsplit("-", 1)
+
+        try:
+            pull_number = int(pull_number_str)
+        except ValueError:
+            raise ValueError(f"Invalid pull number in instance ID: {instance_id}")
+
+        repo = repo_formatted.replace("__", "/")
+
+        return repo, pull_number, commit

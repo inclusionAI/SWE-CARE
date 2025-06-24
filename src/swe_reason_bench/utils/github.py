@@ -197,6 +197,7 @@ class GitHubAPI:
     def get_patch(
         self,
         repo: str,
+        *,
         pr_number: Optional[int] = None,
         base_commit: Optional[str] = None,
         head_commit: Optional[str] = None,
