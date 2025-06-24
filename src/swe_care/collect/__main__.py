@@ -55,7 +55,7 @@ def get_args():
         # No subcommand found, use normal argparse
         parser = argparse.ArgumentParser(
             prog="swe_care.collect",
-            description="Data collection tools for SWE Reason Bench",
+            description="Data collection tools for SWE-CARE",
         )
         parser.add_argument(
             "--tokens",
@@ -92,7 +92,7 @@ def get_args():
         case "get_top_repos":
             sub_parser = argparse.ArgumentParser(prog=f"swe_care.collect {subcommand}")
             sub_parser.add_argument("--language", type=str, required=True)
-            sub_parser.add_argument("--top_n", type=int, required=True)
+            sub_parser.add_argument("--top-n", type=int, required=True)
 
         case "get_graphql_prs_data":
             sub_parser = argparse.ArgumentParser(prog=f"swe_care.collect {subcommand}")

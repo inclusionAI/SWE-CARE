@@ -35,7 +35,7 @@ def get_args():
         # No subcommand found, use normal argparse
         parser = argparse.ArgumentParser(
             prog="swe_care.harness",
-            description="Evaluation tools for SWE Reason Bench",
+            description="Evaluation tools for SWE-CARE",
         )
         parser.add_argument(
             "--output-dir",
