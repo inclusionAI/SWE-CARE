@@ -36,6 +36,25 @@ SUBCOMMAND_MAP = {
 }
 
 
+def create_global_parser():
+    """Create a parser with global arguments that can be used as a parent parser."""
+    global_parser = argparse.ArgumentParser(add_help=False)
+    global_parser.add_argument(
+        "--tokens",
+        type=str,
+        nargs="*",
+        default=None,
+        help="GitHub API token(s) to be used randomly for fetching data",
+    )
+    global_parser.add_argument(
+        "--output-dir",
+        type=Path,
+        required=True,
+        help="Path to output directory",
+    )
+    return global_parser
+
+
 def get_args():
     # Parse command line manually to handle flexible argument order
     args = sys.argv[1:]
@@ -51,24 +70,15 @@ def get_args():
             subcommand_index = i
             break
 
+    # Create global parser
+    global_parser = create_global_parser()
+
     if subcommand is None:
         # No subcommand found, use normal argparse
         parser = argparse.ArgumentParser(
             prog="swe_care.collect",
             description="Data collection tools for SWE-CARE",
-        )
-        parser.add_argument(
-            "--tokens",
-            type=str,
-            nargs="*",
-            default=None,
-            help="GitHub API token(s) to be used randomly for fetching data",
-        )
-        parser.add_argument(
-            "--output-dir",
-            type=Path,
-            required=True,
-            help="Path to output directory",
+            parents=[global_parser],
         )
 
         subparsers = parser.add_subparsers(dest="command", help="Available commands")
@@ -77,25 +87,33 @@ def get_args():
 
         return parser.parse_args(args)
 
-    # Split arguments into global and subcommand parts
-    global_args = args[:subcommand_index] + args[subcommand_index + 1 :]
-
-    # Parse global arguments
-    global_parser = argparse.ArgumentParser(add_help=False)
-    global_parser.add_argument("--tokens", type=str, nargs="*", default=None)
-    global_parser.add_argument("--output-dir", type=Path)
-
-    global_namespace, remaining_args = global_parser.parse_known_args(global_args)
-
-    # Create the appropriate subcommand parser
+    # Create the appropriate subcommand parser with global parser as parent
     match subcommand:
         case "get_top_repos":
-            sub_parser = argparse.ArgumentParser(prog=f"swe_care.collect {subcommand}")
-            sub_parser.add_argument("--language", type=str, required=True)
-            sub_parser.add_argument("--top-n", type=int, required=True)
+            sub_parser = argparse.ArgumentParser(
+                prog=f"swe_care.collect {subcommand}",
+                parents=[global_parser],
+                description="Get top repositories for a given language",
+            )
+            sub_parser.add_argument(
+                "--language",
+                type=str,
+                required=True,
+                help="Programming language to search for",
+            )
+            sub_parser.add_argument(
+                "--top-n",
+                type=int,
+                required=True,
+                help="Number of top repositories to fetch",
+            )
 
         case "get_graphql_prs_data":
-            sub_parser = argparse.ArgumentParser(prog=f"swe_care.collect {subcommand}")
+            sub_parser = argparse.ArgumentParser(
+                prog=f"swe_care.collect {subcommand}",
+                parents=[global_parser],
+                description="Get PR data from GitHub GraphQL API",
+            )
             repo_group = sub_parser.add_mutually_exclusive_group(required=True)
             repo_group.add_argument(
                 "--repo-file", type=Path, help="Path to repository file"
@@ -110,7 +128,11 @@ def get_args():
                 help="Maximum number of PRs to fetch per page",
             )
         case "evaluate_commits":
-            sub_parser = argparse.ArgumentParser(prog=f"swe_care.collect {subcommand}")
+            sub_parser = argparse.ArgumentParser(
+                prog=f"swe_care.collect {subcommand}",
+                parents=[global_parser],
+                description="Evaluate commits in PRs using heuristic rules",
+            )
             sub_parser.add_argument(
                 "--graphql-prs-data-file",
                 type=Path,
@@ -118,7 +140,11 @@ def get_args():
                 help="Path to GraphQL PRs data file",
             )
         case "build_code_review_dataset":
-            sub_parser = argparse.ArgumentParser(prog=f"swe_care.collect {subcommand}")
+            sub_parser = argparse.ArgumentParser(
+                prog=f"swe_care.collect {subcommand}",
+                parents=[global_parser],
+                description="Build code review task dataset",
+            )
             sub_parser.add_argument(
                 "--graphql-prs-data-file",
                 type=Path,
@@ -138,25 +164,12 @@ def get_args():
                 help="Skip processing existing instance_id in the output file (default: False)",
             )
 
-    # Parse subcommand arguments
-    sub_namespace = sub_parser.parse_args(remaining_args)
-
-    # Combine namespaces
-    final_namespace = argparse.Namespace()
+    # Parse all arguments with the subcommand parser
+    # This will include both global and subcommand-specific arguments
+    # Remove the subcommand itself from args
+    args_without_subcommand = args[:subcommand_index] + args[subcommand_index + 1 :]
+    final_namespace = sub_parser.parse_args(args_without_subcommand)
     final_namespace.command = subcommand
-
-    # Add global arguments
-    final_namespace.tokens = global_namespace.tokens
-    final_namespace.output_dir = global_namespace.output_dir
-
-    # Add subcommand arguments
-    for key, value in vars(sub_namespace).items():
-        setattr(final_namespace, key, value)
-
-    # Ensure output_dir is provided
-    if not final_namespace.output_dir:
-        logger.error("the following arguments are required: --output-dir")
-        sys.exit(2)
 
     return final_namespace
 
@@ -184,6 +197,7 @@ def main():
                     **common_kwargs,
                 )
             case "evaluate_commits":
+                logger.warning("tokens are not used for evaluate_commits")
                 common_kwargs.pop("tokens")
                 function(
                     graphql_prs_data_file=args.graphql_prs_data_file,

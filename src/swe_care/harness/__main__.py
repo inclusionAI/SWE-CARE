@@ -16,6 +16,18 @@ SUBCOMMAND_MAP = {
 }
 
 
+def create_global_parser():
+    """Create a parser with global arguments that can be used as a parent parser."""
+    global_parser = argparse.ArgumentParser(add_help=False)
+    global_parser.add_argument(
+        "--output-dir",
+        type=Path,
+        required=True,
+        help="Path to output directory",
+    )
+    return global_parser
+
+
 def get_args():
     # Parse command line manually to handle flexible argument order
     args = sys.argv[1:]
@@ -31,17 +43,15 @@ def get_args():
             subcommand_index = i
             break
 
+    # Create global parser
+    global_parser = create_global_parser()
+
     if subcommand is None:
         # No subcommand found, use normal argparse
         parser = argparse.ArgumentParser(
             prog="swe_care.harness",
             description="Evaluation tools for SWE-CARE",
-        )
-        parser.add_argument(
-            "--output-dir",
-            type=Path,
-            required=True,
-            help="Path to output directory",
+            parents=[global_parser],
         )
 
         subparsers = parser.add_subparsers(dest="command", help="Available commands")
@@ -50,19 +60,14 @@ def get_args():
 
         return parser.parse_args(args)
 
-    # Split arguments into global and subcommand parts
-    global_args = args[:subcommand_index] + args[subcommand_index + 1 :]
-
-    # Parse global arguments
-    global_parser = argparse.ArgumentParser(add_help=False)
-    global_parser.add_argument("--output-dir", type=Path)
-
-    global_namespace, remaining_args = global_parser.parse_known_args(global_args)
-
-    # Create the appropriate subcommand parser
+    # Create the appropriate subcommand parser with global parser as parent
     match subcommand:
         case "code_review_eval":
-            sub_parser = argparse.ArgumentParser(prog=f"swe_care.harness {subcommand}")
+            sub_parser = argparse.ArgumentParser(
+                prog=f"swe_care.harness {subcommand}",
+                parents=[global_parser],
+                description="Run evaluation on code review predictions",
+            )
             sub_parser.add_argument(
                 "--dataset-file",
                 type=Path,
@@ -102,24 +107,12 @@ def get_args():
                 help="LLM API base to use",
             )
 
-    # Parse subcommand arguments
-    sub_namespace = sub_parser.parse_args(remaining_args)
-
-    # Combine namespaces
-    final_namespace = argparse.Namespace()
+    # Parse all arguments with the subcommand parser
+    # This will include both global and subcommand-specific arguments
+    # Remove the subcommand itself from args
+    args_without_subcommand = args[:subcommand_index] + args[subcommand_index + 1 :]
+    final_namespace = sub_parser.parse_args(args_without_subcommand)
     final_namespace.command = subcommand
-
-    # Add global arguments
-    final_namespace.output_dir = global_namespace.output_dir
-
-    # Add subcommand arguments
-    for key, value in vars(sub_namespace).items():
-        setattr(final_namespace, key, value)
-
-    # Ensure output_dir is provided
-    if not final_namespace.output_dir:
-        logger.error("the following arguments are required: --output-dir")
-        sys.exit(2)
 
     return final_namespace
 
