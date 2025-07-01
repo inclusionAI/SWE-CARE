@@ -9,6 +9,7 @@ import json
 import urllib.parse
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
+from threading import Lock
 from typing import Literal
 
 from loguru import logger
@@ -121,9 +122,17 @@ def create_code_review_text(
             raise ValueError(f"Invalid JSON in retrieval file: {e}")
 
     # Process dataset and generate text
-    processed_instances = []
+    success_count = 0
+    failed_count = 0
 
-    with ThreadPoolExecutor(max_workers=jobs) as executor:
+    # Create output file and prepare for continuous writing
+    output_file = output_dir / f"{dataset_file.stem}__{file_source}.jsonl"
+    logger.info(f"Will save processed instances to {output_file}")
+
+    # File lock for thread-safe writing
+    file_lock = Lock()
+
+    with open(output_file, "w") as f, ThreadPoolExecutor(max_workers=jobs) as executor:
         # Submit all tasks
         future_to_instance = {
             executor.submit(
@@ -145,13 +154,19 @@ def create_code_review_text(
                 try:
                     prediction = future.result()
                     if prediction:
-                        processed_instances.append(prediction)
+                        # Write to file immediately with thread safety
+                        with file_lock:
+                            f.write(prediction.to_json() + "\n")
+                            f.flush()  # Ensure immediate write to disk
+                        success_count += 1
                     else:
+                        failed_count += 1
                         logger.warning(
                             f"Failed to process instance {instance.instance_id}"
                         )
 
                 except Exception as e:
+                    failed_count += 1
                     logger.error(
                         f"Exception processing instance {instance.instance_id}: {e}"
                     )
@@ -159,20 +174,12 @@ def create_code_review_text(
                 pbar.update(1)
                 pbar.set_postfix(
                     {
-                        "success": len(processed_instances),
-                        "failed": len(instances) - len(processed_instances),
+                        "success": success_count,
+                        "failed": failed_count,
                     }
                 )
 
-    # Save the processed dataset
-    output_file = output_dir / f"{dataset_file.stem}__{file_source}.jsonl"
-    logger.info(f"Saving processed dataset to {output_file}")
-
-    with open(output_file, "w") as f:
-        for instance in processed_instances:
-            f.write(instance.to_json() + "\n")
-
-    logger.info(f"Successfully generated {len(processed_instances)} text instances")
+    logger.info(f"Successfully generated {success_count} text instances")
     logger.info(f"Output saved to {output_file}")
 
 
