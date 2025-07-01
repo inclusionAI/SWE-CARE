@@ -3,6 +3,8 @@ Build code review task dataset.
 """
 
 import json
+import threading
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 from typing import Optional
 
@@ -46,54 +48,56 @@ def select_best_commit_to_review(
     return sorted_commits[0].commit_sha
 
 
-def build_code_review_dataset(
-    graphql_prs_data_file: Path | str,
-    pr_commits_evaluation_file: Path | str,
-    output_dir: Path | str = None,
+def load_existing_instance_ids(output_file: Path) -> set[str]:
+    """
+    Load existing instance IDs from the output file.
+
+    Args:
+        output_file: Path to the output file
+
+    Returns:
+        Set of existing instance IDs
+    """
+    existing_ids = set()
+    if output_file.exists():
+        try:
+            with open(output_file, "r") as f:
+                for line in f:
+                    try:
+                        data = json.loads(line.strip())
+                        instance_id = data.get("instance_id")
+                        if instance_id:
+                            existing_ids.add(instance_id)
+                    except json.JSONDecodeError:
+                        continue
+        except Exception as e:
+            logger.warning(f"Error reading existing instances from {output_file}: {e}")
+
+    return existing_ids
+
+
+def build_code_review_dataset_single_file(
+    graphql_prs_data_file: Path,
+    pr_commits_evaluation_file: Path,
+    output_file: Path,
+    existing_instances: set[str],
+    file_lock: threading.Lock,
     tokens: Optional[list[str]] = None,
     skip_existing: bool = False,
 ) -> None:
     """
-    Build code review task dataset.
+    Build code review task dataset for a single pair of files.
 
     Args:
         graphql_prs_data_file: Path to GraphQL PRs data file (output from get_graphql_prs_data)
         pr_commits_evaluation_file: Path to PR commits evaluation file (output from evaluate_commits)
-        output_dir: Directory to save the output data
+        output_file: Path to the output file
+        existing_instances: Set of existing instance IDs to check against
+        file_lock: Threading lock for file operations
         tokens: Optional list of GitHub tokens for API requests
-        skip_existing: If True, skip processing existing instance_id in the output file.
+        skip_existing: If True, skip processing existing instance_id.
                       If False, replace existing instance_id data.
     """
-    if isinstance(graphql_prs_data_file, str):
-        graphql_prs_data_file = Path(graphql_prs_data_file)
-    if isinstance(pr_commits_evaluation_file, str):
-        pr_commits_evaluation_file = Path(pr_commits_evaluation_file)
-    if isinstance(output_dir, str):
-        output_dir = Path(output_dir)
-    if output_dir is None:
-        raise ValueError("output_dir is required")
-
-    output_dir = Path(output_dir)
-    output_dir.mkdir(parents=True, exist_ok=True)
-
-    output_file = output_dir / "code_review_task_instances.jsonl"
-
-    # Load existing instance IDs if the output file exists
-    existing_instances = {}
-    if output_file.exists():
-        with open(output_file, "r") as f:
-            for line in f:
-                try:
-                    data = json.loads(line.strip())
-                    instance_id = data.get("instance_id")
-                    if instance_id:
-                        existing_instances[instance_id] = data
-                except json.JSONDecodeError:
-                    continue
-
-    # Store all instances (existing + new/updated)
-    all_instances = existing_instances.copy()
-
     _pr_commits_evaluation: list[PRCommitEvaluation] = [
         PRCommitEvaluation.from_json(e)
         for e in pr_commits_evaluation_file.read_text().split("\n")
@@ -108,8 +112,13 @@ def build_code_review_dataset(
     with open(graphql_prs_data_file, "r") as input_f:
         total_lines = sum(1 for _ in input_f)
 
+    processed_count = 0
+    skipped_count = 0
+
     with open(graphql_prs_data_file, "r") as input_f:
-        for line in tqdm(input_f, desc="Processing PRs", total=total_lines):
+        for line in tqdm(
+            input_f, desc=f"Processing {graphql_prs_data_file.name}", total=total_lines
+        ):
             try:
                 pr_data = json.loads(line.strip())
 
@@ -137,15 +146,32 @@ def build_code_review_dataset(
                 base_commit = pr_data.get("baseRefOid", "")
                 merge_commit = pr_data.get("headRefOid", "")
 
-                assert url in pr_commits_evaluation_map, (
-                    f"PR URL {url} not found in {pr_commits_evaluation_file} data, did you run evaluate_commits?"
-                )
+                if url not in pr_commits_evaluation_map:
+                    logger.warning(
+                        f"PR URL {url} not found in evaluation data, skipping"
+                    )
+                    continue
 
                 # Select the best commit for review
                 head_commit_to_review = select_best_commit_to_review(
                     pr_commits_evaluation_map[url]
                 )
-                logger.info(f"Selected commit to review: {head_commit_to_review}")
+
+                # Generate instance ID early to check if it exists
+                instance_id = CodeReviewTaskInstance.generate_instance_id(
+                    repo, pull_number, head_commit_to_review
+                )
+
+                # Check if instance already exists and handle according to skip_existing flag
+                if instance_id in existing_instances:
+                    if skip_existing:
+                        logger.debug(f"Skipping existing instance {instance_id}")
+                        skipped_count += 1
+                        continue
+                    else:
+                        logger.debug(f"Replacing existing instance {instance_id}")
+
+                logger.debug(f"Selected commit to review: {head_commit_to_review}")
 
                 # Find the commit message for the selected commit
                 head_commit_message_to_review = ""
@@ -155,18 +181,6 @@ def build_code_review_dataset(
                     if commit.get("oid") == head_commit_to_review:
                         head_commit_message_to_review = commit.get("message", "")
                         break
-
-                instance_id = CodeReviewTaskInstance.generate_instance_id(
-                    repo, pull_number, head_commit_to_review
-                )
-
-                # Check if instance already exists and handle according to skip_existing flag
-                if instance_id in existing_instances:
-                    if skip_existing:
-                        logger.info(f"Skipping existing instance {instance_id}")
-                        continue
-                    else:
-                        logger.info(f"Replacing existing instance {instance_id}")
 
                 # Extract problem statement from closing issues
                 closing_issues = pr_data.get("closingIssuesReferences", {}).get(
@@ -232,17 +246,175 @@ def build_code_review_dataset(
                     metadata=metadata,
                 )
 
-                # Store the task data
-                all_instances[instance_id] = json.loads(task.to_json())
-                logger.info(f"Processed instance: {instance_id}")
+                # Write to file with thread lock
+                with file_lock:
+                    with open(output_file, "a") as output_f:
+                        output_f.write(task.to_json() + "\n")
+
+                    # Add to existing instances set to avoid duplicates within this run
+                    existing_instances.add(instance_id)
+
+                processed_count += 1
+                logger.debug(f"Processed instance: {instance_id}")
 
             except Exception as e:
                 logger.error(f"Error processing PR: {e}")
                 continue
 
-    # Write all instances to the output file (this replaces the entire file)
-    with open(output_file, "w") as output_f:
-        for instance_data in all_instances.values():
-            output_f.write(json.dumps(instance_data) + "\n")
+    logger.info(
+        f"Completed processing {graphql_prs_data_file.name}: {processed_count} processed, {skipped_count} skipped"
+    )
 
-    logger.success(f"Code review dataset saved to {output_file}")
+
+def find_matching_evaluation_file(
+    graphql_data_file: Path,
+    evaluation_dir: Path,
+) -> Path | None:
+    """
+    Find the corresponding evaluation file for a given graphql data file.
+
+    Args:
+        graphql_data_file: Path to a graphql data file (e.g., org__repo_graphql_prs_data.jsonl)
+        evaluation_dir: Directory containing evaluation files
+
+    Returns:
+        Path to the matching evaluation file, or None if not found
+    """
+    # Extract repo information from the graphql data file name
+    # Expected format: {org}__{repo}_graphql_prs_data.jsonl
+    file_name = graphql_data_file.stem
+    if file_name.endswith("_graphql_prs_data"):
+        repo_part = file_name[: -len("_graphql_prs_data")]
+        expected_eval_file = f"{repo_part}_pr_commits_evaluation.jsonl"
+
+        # Look for the evaluation file in the evaluation directory
+        eval_file = evaluation_dir / expected_eval_file
+        if eval_file.exists():
+            return eval_file
+
+        # Also try recursive search in case files are in subdirectories
+        matches = list(evaluation_dir.rglob(expected_eval_file))
+        if matches:
+            return matches[0]
+
+    return None
+
+
+def build_code_review_dataset(
+    graphql_prs_data_file: Path | str,
+    pr_commits_evaluation_file: Path | str,
+    output_dir: Path | str = None,
+    tokens: Optional[list[str]] = None,
+    skip_existing: bool = False,
+    jobs: int = 2,
+) -> None:
+    """
+    Build code review task dataset.
+
+    Args:
+        graphql_prs_data_file: Path to GraphQL PRs data file or directory containing *_graphql_prs_data.jsonl files
+        pr_commits_evaluation_file: Path to PR commits evaluation file or directory containing *_pr_commits_evaluation.jsonl files
+        output_dir: Directory to save the output data
+        tokens: Optional list of GitHub tokens for API requests
+        skip_existing: If True, skip processing existing instance_id in the output file.
+                      If False, replace existing instance_id data.
+        jobs: Number of concurrent jobs/threads to use
+    """
+    if isinstance(graphql_prs_data_file, str):
+        graphql_prs_data_file = Path(graphql_prs_data_file)
+    if isinstance(pr_commits_evaluation_file, str):
+        pr_commits_evaluation_file = Path(pr_commits_evaluation_file)
+    if isinstance(output_dir, str):
+        output_dir = Path(output_dir)
+    if output_dir is None:
+        raise ValueError("output_dir is required")
+
+    output_dir = Path(output_dir)
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    output_file = output_dir / "code_review_task_instances.jsonl"
+
+    # Load existing instance IDs
+    existing_instances = load_existing_instance_ids(output_file)
+    logger.info(f"Found {len(existing_instances)} existing instances in output file")
+
+    # Create a thread lock for file operations
+    file_lock = threading.Lock()
+
+    # Determine if inputs are files or directories
+    if graphql_prs_data_file.is_file() and pr_commits_evaluation_file.is_file():
+        # Single file processing
+        logger.info(
+            f"Processing single file pair: {graphql_prs_data_file} & {pr_commits_evaluation_file}"
+        )
+        build_code_review_dataset_single_file(
+            graphql_prs_data_file,
+            pr_commits_evaluation_file,
+            output_file,
+            existing_instances,
+            file_lock,
+            tokens,
+            skip_existing,
+        )
+    elif graphql_prs_data_file.is_dir() and pr_commits_evaluation_file.is_dir():
+        # Directory processing with recursive search
+        logger.info(
+            f"Processing directories: {graphql_prs_data_file} & {pr_commits_evaluation_file}"
+        )
+
+        graphql_files = list(graphql_prs_data_file.rglob("*_graphql_prs_data.jsonl"))
+        if not graphql_files:
+            logger.warning(
+                f"No *_graphql_prs_data.jsonl files found in {graphql_prs_data_file}"
+            )
+            return
+
+        # Find matching pairs
+        file_pairs = []
+        for graphql_file in graphql_files:
+            eval_file = find_matching_evaluation_file(
+                graphql_file, pr_commits_evaluation_file
+            )
+            if eval_file:
+                file_pairs.append((graphql_file, eval_file))
+            else:
+                logger.warning(f"No matching evaluation file found for {graphql_file}")
+
+        if not file_pairs:
+            logger.warning("No matching file pairs found")
+            return
+
+        logger.info(f"Found {len(file_pairs)} file pairs to process with {jobs} jobs")
+
+        # Process file pairs in parallel
+        with ThreadPoolExecutor(max_workers=jobs) as executor:
+            # Submit all tasks
+            future_to_files = {
+                executor.submit(
+                    build_code_review_dataset_single_file,
+                    graphql_file,
+                    eval_file,
+                    output_file,
+                    existing_instances,
+                    file_lock,
+                    tokens,
+                    skip_existing,
+                ): (graphql_file, eval_file)
+                for graphql_file, eval_file in file_pairs
+            }
+
+            # Process completed tasks
+            for future in as_completed(future_to_files):
+                graphql_file, eval_file = future_to_files[future]
+                try:
+                    future.result()
+                    logger.success(f"Successfully processed {graphql_file.name}")
+                except Exception as e:
+                    logger.error(f"Error processing {graphql_file.name}: {e}")
+    else:
+        raise ValueError(
+            "Both graphql_prs_data_file and pr_commits_evaluation_file must be either files or directories"
+        )
+
+    logger.info("All dataset building completed")
+    logger.info(f"Final dataset saved to {output_file}")

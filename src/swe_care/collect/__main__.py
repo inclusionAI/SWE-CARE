@@ -154,7 +154,13 @@ def get_args():
                 "--graphql-prs-data-file",
                 type=Path,
                 required=True,
-                help="Path to GraphQL PRs data file",
+                help="Path to GraphQL PRs data file or directory containing *_graphql_prs_data.jsonl files",
+            )
+            sub_parser.add_argument(
+                "--jobs",
+                type=int,
+                default=2,
+                help="Number of concurrent jobs/threads to use (default: 2)",
             )
         case "build_code_review_dataset":
             sub_parser = argparse.ArgumentParser(
@@ -166,19 +172,25 @@ def get_args():
                 "--graphql-prs-data-file",
                 type=Path,
                 required=True,
-                help="Path to GraphQL PRs data file",
+                help="Path to GraphQL PRs data file or directory containing *_graphql_prs_data.jsonl files",
             )
             sub_parser.add_argument(
                 "--pr-commits-evaluation-file",
                 type=Path,
                 required=True,
-                help="Path to PR commits evaluation file",
+                help="Path to PR commits evaluation file or directory containing *_pr_commits_evaluation.jsonl files",
             )
             sub_parser.add_argument(
                 "--skip-existing",
                 action="store_true",
                 default=False,
                 help="Skip processing existing instance_id in the output file (default: False)",
+            )
+            sub_parser.add_argument(
+                "--jobs",
+                type=int,
+                default=2,
+                help="Number of concurrent jobs/threads to use (default: 2)",
             )
 
     # Parse all arguments with the subcommand parser
@@ -220,6 +232,7 @@ def main():
                 common_kwargs.pop("tokens")
                 function(
                     graphql_prs_data_file=args.graphql_prs_data_file,
+                    jobs=args.jobs,
                     **common_kwargs,
                 )
             case "build_code_review_dataset":
@@ -227,6 +240,7 @@ def main():
                     graphql_prs_data_file=args.graphql_prs_data_file,
                     pr_commits_evaluation_file=args.pr_commits_evaluation_file,
                     skip_existing=args.skip_existing,
+                    jobs=args.jobs,
                     **common_kwargs,
                 )
     else:

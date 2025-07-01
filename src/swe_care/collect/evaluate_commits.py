@@ -4,6 +4,7 @@ Evaluate commits in PRs using heuristic rules.
 
 import json
 import re
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -182,9 +183,11 @@ class CommitEvaluator:
         for review in reviews:
             review_comments = review.get("comments", {}).get("nodes", [])
             for comment in review_comments:
-                original_commit_oid = comment.get("originalCommit", {}).get("oid")
-                if original_commit_oid == commit_oid:
-                    return True
+                original_commit = comment.get("originalCommit")
+                if original_commit is not None:
+                    original_commit_oid = original_commit.get("oid")
+                    if original_commit_oid == commit_oid:
+                        return True
 
         return False
 
@@ -418,25 +421,20 @@ class CommitEvaluator:
         return min(1.0, score)
 
 
-def evaluate_commits(
-    graphql_prs_data_file: Path | str,
-    output_dir: Path | str,
+def evaluate_commits_single_file(
+    graphql_prs_data_file: Path,
+    output_dir: Path,
 ) -> None:
     """
-    Evaluate commits in PRs using heuristic rules.
+    Evaluate commits in a single PR data file using heuristic rules.
 
     Args:
         graphql_prs_data_file: Path to the GraphQL PRs data file
         output_dir: Directory to save evaluation results
     """
-    if isinstance(graphql_prs_data_file, str):
-        graphql_prs_data_file = Path(graphql_prs_data_file)
-    if isinstance(output_dir, str):
-        output_dir = Path(output_dir)
     logger.info(f"Starting commit evaluation from {graphql_prs_data_file}")
 
     evaluator = CommitEvaluator()
-    output_dir.mkdir(parents=True, exist_ok=True)
 
     # Track which repositories we've already processed to avoid deleting output files multiple times
     processed_repos = set()
@@ -522,4 +520,68 @@ def evaluate_commits(
                 logger.error(f"Line {line_num}: Error processing PR: {e}")
                 continue
 
-    logger.info("Commit evaluation completed")
+    logger.info(f"Completed commit evaluation for {graphql_prs_data_file}")
+
+
+def evaluate_commits(
+    graphql_prs_data_file: Path | str,
+    output_dir: Path | str,
+    jobs: int = 2,
+) -> None:
+    """
+    Evaluate commits in PRs using heuristic rules.
+
+    Args:
+        graphql_prs_data_file: Path to the GraphQL PRs data file or directory containing *_graphql_prs_data.jsonl files
+        output_dir: Directory to save evaluation results
+        jobs: Number of concurrent jobs/threads to use
+    """
+    if isinstance(graphql_prs_data_file, str):
+        graphql_prs_data_file = Path(graphql_prs_data_file)
+    if isinstance(output_dir, str):
+        output_dir = Path(output_dir)
+
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    # Determine if input is a file or directory
+    if graphql_prs_data_file.is_file():
+        # Single file processing
+        logger.info(f"Processing single file: {graphql_prs_data_file}")
+        evaluate_commits_single_file(graphql_prs_data_file, output_dir)
+    elif graphql_prs_data_file.is_dir():
+        # Directory processing with recursive search
+        logger.info(f"Processing directory: {graphql_prs_data_file}")
+        data_files = list(graphql_prs_data_file.rglob("*_graphql_prs_data.jsonl"))
+
+        if not data_files:
+            logger.warning(
+                f"No *_graphql_prs_data.jsonl files found in {graphql_prs_data_file}"
+            )
+            return
+
+        logger.info(f"Found {len(data_files)} files to process with {jobs} jobs")
+
+        # Process files in parallel
+        with ThreadPoolExecutor(max_workers=jobs) as executor:
+            # Submit all tasks
+            future_to_file = {
+                executor.submit(
+                    evaluate_commits_single_file, data_file, output_dir
+                ): data_file
+                for data_file in data_files
+            }
+
+            # Process completed tasks
+            for future in as_completed(future_to_file):
+                data_file = future_to_file[future]
+                try:
+                    future.result()
+                    logger.success(f"Successfully processed {data_file}")
+                except Exception as e:
+                    logger.error(f"Error processing {data_file}: {e}")
+    else:
+        raise ValueError(
+            f"Path {graphql_prs_data_file} is neither a file nor a directory"
+        )
+
+    logger.info("All commit evaluations completed")

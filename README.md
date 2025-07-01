@@ -78,13 +78,26 @@ Here's an example of the command-line usage for each step:
 
 3. **Evaluate Commits**: Evaluate the collected commits from the PRs.
 
+    **Single file processing:**
+
     ```bash
     python -m swe_care.collect evaluate_commits \
         --graphql-prs-data-file "results/graphql_prs_data/<repo_owner>__<repo_name>_graphql_prs_data.jsonl" \
         --output-dir "./results/evaluate_commits"
     ```
 
+    **Batch processing (multiple repositories):**
+
+    ```bash
+    python -m swe_care.collect evaluate_commits \
+        --graphql-prs-data-file "results/graphql_prs_data/" \
+        --output-dir "./results/evaluate_commits" \
+        --jobs 4
+    ```
+
 4. **Build Code Review Dataset**: Build the final dataset for the code review task.
+
+    **Single file processing:**
 
     ```bash
     python -m swe_care.collect build_code_review_dataset \
@@ -94,7 +107,23 @@ Here's an example of the command-line usage for each step:
         --tokens "your_github_pat"
     ```
 
-You can find more details about the arguments for each script by running `python -m swe_care.collect -h`.
+    **Batch processing (multiple repositories):**
+
+    ```bash
+    python -m swe_care.collect build_code_review_dataset \
+        --graphql-prs-data-file "results/graphql_prs_data/" \
+        --pr-commits-evaluation-file "results/evaluate_commits/" \
+        --output-dir "./results/dataset" \
+        --tokens "your_github_pat" \
+        --jobs 4
+    ```
+
+    **Note**: When using directory inputs, the tool will automatically:
+    * Recursively find all `*_graphql_prs_data.jsonl` files in the specified directory
+    * Match them with corresponding `*_pr_commits_evaluation.jsonl` files
+    * Process multiple file pairs concurrently using the specified number of jobs
+
+You can find more details about the arguments for each script by running `python -m swe_care.collect <subcommand> -h`.
 
 ## 🔄 Inference
 
@@ -181,6 +210,8 @@ If you are using an API provider other than the provided ones, you can run infer
 
 The generated predictions will be saved as JSONL files containing `CodeReviewPrediction` objects, which can then be used for evaluation.
 
+You can find more details about the arguments for each script by running `python -m swe_care.inference <subcommand> -h`.
+
 ## 🚀 Evaluation
 
 The evaluation harness is used to assess model predictions on the code review task. The main script is `src/swe_care/harness/code_review_eval.py`.
@@ -241,6 +272,8 @@ python -m swe_care.harness code_review_eval \
 ### Output
 
 The evaluation results are saved as a JSONL file (`final_report.jsonl`) containing `CodeReviewEvaluationResult` objects with detailed metrics for each instance.
+
+You can find more details about the arguments for each script by running `python -m swe_care.harness <subcommand> -h`.
 
 ## 📜 Citation
 
