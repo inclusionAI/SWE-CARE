@@ -43,15 +43,17 @@ Does the patch follow the programming conventions of the original code? Does it 
 Does the patch provide clear and necessary comments? If the patch changes how users build, test, interact with, or release code, does it also update associated documentation?
 
 ## Defects
-If there are any defects in the patch, point out their locations (in line number) and provide improvement suggestions in the following format:
-{
-    'location': line number of defect 1 in the patch
-    'suggestion': suggestion for defect 1
-}
-{
-    'location': line number of defect 2 in the patch
-    'suggestion': suggestion for defect 2
-}
+If there are any defects in the patch, point out their locations (file path and line number) and provide improvement suggestions in the following format:
+<defect>
+file_path: file path of defect 1 in the patch
+line: line number of defect 1 in the patch
+suggestion: suggestion for defect 1
+</defect>
+<defect>
+file_path: file path of defect 2 in the patch
+line: line number of defect 2 in the patch
+suggestion: suggestion for defect 2
+</defect>
 ...
 Note:
 - If there is no defect, output "None" in this section.
@@ -300,13 +302,17 @@ def get_all_files(instance: CodeReviewTaskInstance, k: int) -> dict[str, str]:
 
 
 def generate_context_text(
-    instance: CodeReviewTaskInstance, files: dict[str, str]
+    instance: CodeReviewTaskInstance,
+    files: dict[str, str],
+    add_line_numbers: bool = True,
 ) -> str:
     """
     Generate context text from the selected files.
 
     Args:
+        instance: The code review task instance
         files: Dictionary mapping file paths to file contents
+        add_line_numbers: Whether to add line numbers to the start of each line (default: True)
 
     Returns:
         Generated context text
@@ -318,7 +324,17 @@ def generate_context_text(
 
     prompt += "<code>\n"
     for file_path, file_content in files.items():
-        prompt += f"[start of {file_path}]\n{file_content}\n[end of {file_path}]\n"
+        prompt += f"[start of {file_path}]\n"
+
+        if add_line_numbers:
+            lines = file_content.split("\n")
+            numbered_lines = [f"{i + 1:4d} {line}" for i, line in enumerate(lines)]
+            numbered_content = "\n".join(numbered_lines)
+            prompt += f"{numbered_content}\n"
+        else:
+            prompt += f"{file_content}\n"
+
+        prompt += f"[end of {file_path}]\n"
     prompt += "</code>\n"
 
     prompt += f"<patch>\n{instance.commit_to_review.patch_to_review}\n</patch>\n"

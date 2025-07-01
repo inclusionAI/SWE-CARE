@@ -133,6 +133,8 @@ def run_api(
         )
     else:
         instances_to_process = instances
+        if output_file.exists():
+            output_file.unlink()
 
     if not instances_to_process:
         logger.info("No instances to process. All instances already have predictions.")
