@@ -2,6 +2,7 @@
 Run evaluation on code review predictions.
 """
 
+from datetime import datetime
 from enum import Enum
 from pathlib import Path
 from typing import Any, Optional
@@ -154,7 +155,10 @@ def code_review_eval(
 
     # Create output directory if it doesn't exist
     output_dir.mkdir(parents=True, exist_ok=True)
-    output_file = output_dir / "final_report.jsonl"
+    output_file = (
+        output_dir
+        / f"{predictions_path.stem}_report_{datetime.now().strftime('%Y%m%d_%H%M%S')}.jsonl"
+    )
 
     # Save the evaluation result
     with open(output_file, "w") as f:
