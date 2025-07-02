@@ -154,8 +154,8 @@ def get_args():
             sub_parser.add_argument(
                 "--jobs",
                 type=int,
-                default=1,
-                help="Number of parallel jobs for multithreaded inference (default: 1)",
+                default=2,
+                help="Number of parallel jobs for multithreaded inference (default: 2)",
             )
             sub_parser.add_argument(
                 "--skip-existing",

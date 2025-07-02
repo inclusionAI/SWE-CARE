@@ -155,17 +155,9 @@ def create_code_review_text(
 
                 try:
                     prediction = future.result()
-                    if prediction:
-                        # Write to file immediately with thread safety
-                        with file_lock:
-                            f.write(prediction.to_json() + "\n")
-                            f.flush()  # Ensure immediate write to disk
-                        success_count += 1
-                    else:
-                        failed_count += 1
-                        logger.warning(
-                            f"Failed to process instance {instance.instance_id}"
-                        )
+                    with file_lock:
+                        f.write(prediction.to_json() + "\n")
+                    success_count += 1
 
                 except Exception as e:
                     failed_count += 1

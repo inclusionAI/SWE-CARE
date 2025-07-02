@@ -22,31 +22,26 @@ from swe_care.utils.load import load_code_review_text
 def run_api_instance(
     model_client: BaseModelClient,
     instance: CodeReviewInferenceInstance,
-) -> CodeReviewPrediction | None:
+) -> CodeReviewPrediction:
     """Process a single instance and return the prediction."""
-    try:
-        system_messages = instance.text.split("\n", 1)[0]
-        user_message = instance.text.split("\n", 1)[1]
-        # Prepare messages for the LLM
-        messages = [
-            {"role": "system", "content": system_messages},
-            {"role": "user", "content": user_message},
-        ]
+    system_messages = instance.text.split("\n", 1)[0]
+    user_message = instance.text.split("\n", 1)[1]
+    # Prepare messages for the LLM
+    messages = [
+        {"role": "system", "content": system_messages},
+        {"role": "user", "content": user_message},
+    ]
 
-        # Get completion
-        completion = model_client.create_completion(messages)
+    # Get completion
+    completion = model_client.create_completion(messages)
 
-        # Create prediction
-        prediction = CodeReviewPrediction(
-            instance_id=instance.instance_id,
-            review_text=completion,
-        )
+    # Create prediction
+    prediction = CodeReviewPrediction(
+        instance_id=instance.instance_id,
+        review_text=completion,
+    )
 
-        return prediction
-
-    except Exception as e:
-        logger.error(f"Error processing instance {instance.instance_id}: {e}")
-        return None
+    return prediction
 
 
 def run_api(
@@ -55,7 +50,7 @@ def run_api(
     model_provider: str,
     model_args: str | None,
     output_dir: Path | str,
-    jobs: int = 1,
+    jobs: int = 2,
     skip_existing: bool = True,
 ) -> None:
     """
@@ -146,13 +141,6 @@ def run_api(
 
     # Set up thread-safe writing
     write_lock = threading.Lock()
-
-    def write_prediction(prediction: CodeReviewPrediction) -> None:
-        """Thread-safe function to write prediction to file."""
-        with write_lock:
-            with open(output_file, "a") as f:
-                f.write(prediction.to_json() + "\n")
-
     # Run inference with multithreading
     successful_predictions = 0
     failed_predictions = 0
@@ -175,14 +163,10 @@ def run_api(
 
                 try:
                     prediction = future.result()
-                    if prediction:
-                        write_prediction(prediction)
-                        successful_predictions += 1
-                    else:
-                        failed_predictions += 1
-                        logger.warning(
-                            f"Failed to process instance {instance.instance_id}"
-                        )
+                    with write_lock:
+                        with open(output_file, "a") as f:
+                            f.write(prediction.to_json() + "\n")
+                    successful_predictions += 1
 
                 except Exception as e:
                     failed_predictions += 1

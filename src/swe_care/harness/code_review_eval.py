@@ -2,6 +2,8 @@
 Run evaluation on code review predictions.
 """
 
+import threading
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
 from enum import Enum
 from pathlib import Path
@@ -60,6 +62,47 @@ def load_evaluator(
     return evaluator_cls(**kwargs)
 
 
+def code_review_eval_instance(
+    instance,
+    predictions: list,
+    evaluators: list[Evaluator],
+) -> CodeReviewEvaluationResult:
+    """Process a single instance and return the evaluation result."""
+    prediction = [p for p in predictions if p.instance_id == instance.instance_id]
+    if not prediction:
+        raise ValueError(f"No prediction found for instance {instance.instance_id}")
+    prediction = prediction[0]
+
+    evaluation_results: list[EvaluatorResult] = []
+    for evaluator in evaluators:
+        evaluation = None
+        try:
+            evaluation = evaluator.evaluate(
+                prediction=prediction,
+                reference=instance.reference_review_comments,
+                input=instance,
+            )
+
+        except Exception as e:
+            raise ValueError(
+                f"Error evaluating instance {instance.instance_id} with {evaluator.evaluation_name}: {e}"
+            )
+
+        evaluation_results.append(
+            EvaluatorResult(
+                evaluator=evaluator.evaluation_name,
+                evaluation=evaluation,
+            )
+        )
+
+    evaluation_result = CodeReviewEvaluationResult(
+        instance_id=instance.instance_id,
+        evaluations=evaluation_results,
+    )
+
+    return evaluation_result
+
+
 def code_review_eval(
     dataset_file: Path | str,
     predictions_path: Path | str,
@@ -68,6 +111,7 @@ def code_review_eval(
     model: Optional[str] = None,
     model_provider: Optional[str] = None,
     model_args: Optional[str] = None,
+    jobs: int = 2,
 ) -> None:
     """
     Run evaluation on code review predictions.
@@ -80,6 +124,7 @@ def code_review_eval(
         model: Model name to use for LLM evaluation (required if using LLM evaluator)
         model_provider: Model provider (required if using LLM evaluator)
         model_args: Comma-separated model arguments
+        jobs: Number of parallel jobs to run (default: 2)
     """
     if isinstance(dataset_file, str):
         dataset_file = Path(dataset_file)
@@ -109,50 +154,6 @@ def code_review_eval(
         for evaluator_type in evaluator_types
     ]
 
-    all_instances_evaluation_results: list[CodeReviewEvaluationResult] = []
-
-    for instance in tqdm(
-        instances,
-        desc=f"Evaluating instances with [{', '.join([e.value for e in evaluator_types])}]",
-    ):
-        prediction = [p for p in predictions if p.instance_id == instance.instance_id]
-        if not prediction:
-            logger.warning(f"No prediction found for instance {instance.instance_id}")
-            continue
-        prediction = prediction[0]
-
-        evaluation_results: list[EvaluatorResult] = []
-        for evaluator in evaluators:
-            evaluation = None
-            try:
-                evaluation = evaluator.evaluate(
-                    prediction=prediction,
-                    reference=instance.reference_review_comments,
-                    input=instance,
-                )
-
-            except Exception as e:
-                logger.error(
-                    f"Error evaluating instance {instance.instance_id} with {evaluator.evaluation_name}: {e}"
-                )
-                evaluation = {
-                    "error": str(e),
-                }
-
-            evaluation_results.append(
-                EvaluatorResult(
-                    evaluator=evaluator.evaluation_name,
-                    evaluation=evaluation,
-                )
-            )
-
-        all_instances_evaluation_results.append(
-            CodeReviewEvaluationResult(
-                instance_id=instance.instance_id,
-                evaluations=evaluation_results,
-            )
-        )
-
     # Create output directory if it doesn't exist
     output_dir.mkdir(parents=True, exist_ok=True)
     output_file = (
@@ -160,7 +161,59 @@ def code_review_eval(
         / f"{predictions_path.stem}_report_{datetime.now().strftime('%Y%m%d_%H%M%S')}.jsonl"
     )
 
-    # Save the evaluation result
-    with open(output_file, "w") as f:
-        for evaluation_result in all_instances_evaluation_results:
-            f.write(evaluation_result.to_json() + "\n")
+    # Thread-safe file writing
+    write_lock = threading.Lock()
+
+    # Initialize the output file (truncate if exists)
+    with open(output_file, "w"):
+        pass  # Just create/truncate the file
+
+    # Counters for tracking progress
+    successful_evaluations = 0
+    failed_evaluations = 0
+
+    with ThreadPoolExecutor(max_workers=jobs) as executor:
+        # Submit all tasks
+        future_to_instance = {
+            executor.submit(
+                code_review_eval_instance,
+                instance=instance,
+                predictions=predictions,
+                evaluators=evaluators,
+            ): instance
+            for instance in instances
+        }
+
+        # Process completed tasks with progress bar
+        with tqdm(
+            total=len(instances),
+            desc=f"Evaluating instances with [{', '.join([e.value for e in evaluator_types])}] ({jobs} threads)",
+        ) as pbar:
+            for future in as_completed(future_to_instance):
+                instance = future_to_instance[future]
+
+                try:
+                    result = future.result()
+                    with write_lock:
+                        with open(output_file, "a") as f:
+                            f.write(result.to_json() + "\n")
+                    successful_evaluations += 1
+
+                except Exception as e:
+                    failed_evaluations += 1
+                    logger.error(
+                        f"Exception evaluating instance {instance.instance_id}: {e}"
+                    )
+
+                pbar.update(1)
+                pbar.set_postfix(
+                    {
+                        "success": successful_evaluations,
+                        "failed": failed_evaluations,
+                    }
+                )
+
+    logger.info(
+        f"Evaluation completed. Results saved to {output_file}. "
+        f"Success: {successful_evaluations}, Failed: {failed_evaluations}"
+    )

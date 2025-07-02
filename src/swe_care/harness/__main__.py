@@ -112,6 +112,12 @@ def get_args():
                 required=False,
                 help="Comma-separated model arguments for LLM evaluation (e.g., 'temperature=0.7,top_p=0.9')",
             )
+            sub_parser.add_argument(
+                "--jobs",
+                type=int,
+                default=2,
+                help="Number of parallel jobs to run (default: 2)",
+            )
 
     # Parse all arguments with the subcommand parser
     # This will include both global and subcommand-specific arguments
@@ -144,6 +150,7 @@ def main():
                     model=args.model,
                     model_provider=args.model_provider,
                     model_args=args.model_args,
+                    jobs=args.jobs,
                     **common_kwargs,
                 )
     else:

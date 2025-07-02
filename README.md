@@ -205,7 +205,7 @@ If you are using an API provider other than the provided ones, you can run infer
 * `--model-provider`: Model provider (openai, anthropic, deepseek, qwen)
 * `--model-args`: Comma-separated model arguments (e.g., `temperature=0.7,top_p=0.9`)
 * `--output-dir`: Directory to save generated predictions
-* `--jobs`: Number of parallel threads for inference (default: 1)
+* `--jobs`: Number of parallel threads for inference (default: 2)
 * `--skip-existing`: Skip instances that already have predictions (flag, default: False)
 
 The generated predictions will be saved as JSONL files containing `CodeReviewPrediction` objects, which can then be used for evaluation.
@@ -233,7 +233,8 @@ python -m swe_care.harness code_review_eval \
     --evaluator "llm_evaluator" \
     --model "gpt-4o" \
     --model-provider "openai" \
-    --model-args "temperature=0.0"
+    --model-args "temperature=0.0" \
+    --jobs 4
 ```
 
 #### Rule-based Evaluation
@@ -243,7 +244,8 @@ python -m swe_care.harness code_review_eval \
     --dataset-file "results/code_review_task_instances.jsonl" \
     --predictions-path "results/predictions/dataset__gpt-4o.jsonl" \
     --output-dir "./results/evaluation" \
-    --evaluator "rule_based_evaluator"
+    --evaluator "rule_based_evaluator" \
+    --jobs 4
 ```
 
 #### Multiple Evaluators
@@ -256,7 +258,8 @@ python -m swe_care.harness code_review_eval \
     --output-dir "./results/evaluation" \
     --evaluator "llm_evaluator" "rule_based_evaluator" \
     --model "gpt-4o" \
-    --model-provider "openai"
+    --model-provider "openai" \
+    --jobs 4
 ```
 
 ### Parameters
@@ -268,6 +271,7 @@ python -m swe_care.harness code_review_eval \
 * `--model`: Model name for LLM evaluation (required if using `llm_evaluator`)
 * `--model-provider`: Model provider for LLM evaluation (required if using `llm_evaluator`)
 * `--model-args`: Comma-separated model arguments for LLM evaluation
+* `--jobs`: Number of parallel threads for evaluation (default: 2)
 
 ### Output
 
