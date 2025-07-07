@@ -60,6 +60,44 @@ class LLMEvaluator(Evaluator):
 
         raise ValueError(f"No valid JSON found in LLM response: {text}")
 
+    def _calculate_total_score(self, evaluation_data: dict) -> dict:
+        """Calculate the total score based on the evaluation data.
+
+        Args:
+            evaluation_data: Dictionary containing evaluation scores for each field
+
+        Returns:
+            Dictionary with the original evaluation data plus field averages and total score
+        """
+        # Define weights for each dimension
+        dimension_weights = {
+            "correctness": 0.3,
+            "relevance": 0.25,
+            "clarity": 0.2,
+            "consistency": 0.15,
+            "language": 0.1,
+        }
+
+        # Calculate weighted average for each field
+        result = evaluation_data.copy()
+        field_scores = {}
+
+        for field, dimensions in evaluation_data.items():
+            weighted_sum = 0
+            for dimension, score in dimensions.items():
+                weighted_sum += score * dimension_weights.get(dimension, 0.2)
+
+            field_scores[field] = weighted_sum
+            result[f"{field}_score"] = weighted_sum
+
+        # Calculate total score as average of field scores
+        total_score = (
+            sum(field_scores.values()) / len(field_scores) if field_scores else 0
+        )
+        result["score"] = total_score
+
+        return result
+
     def _evaluate(
         self,
         *,
@@ -75,7 +113,8 @@ class LLMEvaluator(Evaluator):
         ]
 
         answer = self.model_client.create_completion(messages)
-        return self._parse_json(answer)
+        evaluation_data = self._parse_json(answer)
+        return self._calculate_total_score(evaluation_data)
 
 
 class RuleBasedEvaluator(Evaluator):

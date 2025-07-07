@@ -25,7 +25,7 @@ except ImportError:
         "Tiktoken package not found. Please install it with: pip install tiktoken"
     )
 
-DEFAULT_MAX_RETRIES = 4
+DEFAULT_MAX_RETRIES = 10
 
 
 class BaseModelClient(ABC):
