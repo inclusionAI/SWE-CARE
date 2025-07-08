@@ -168,6 +168,28 @@ class QwenClient(OpenAIClient):
             self.client, base_url="https://dashscope.aliyuncs.com/compatible-mode/v1"
         )
 
+    def create_completion(self, messages: list[dict[str, str]]) -> str:
+        """Create a completion using Qwen API with streaming support for enable_thinking."""
+        # If enable_thinking is True, we need to use streaming
+        if self.model_kwargs.get("extra_body", {}).get("enable_thinking", False):
+            response = self.client.chat.completions.create(
+                model=self.model,
+                messages=messages,
+                stream=True,
+                **self.model_kwargs,
+            )
+
+            # Collect the streamed response
+            content = ""
+            for chunk in response:
+                if chunk.choices[0].delta.content is not None:
+                    content += chunk.choices[0].delta.content
+
+            return content
+        else:
+            # Use parent implementation for non-thinking calls
+            return super().create_completion(messages)
+
 
 class AnthropicClient(BaseModelClient):
     """Anthropic API client."""
