@@ -24,6 +24,11 @@ query GetReviewComments($reviewId: ID!, $cursor: String) {
           replyTo {
             id
           }
+          isMinimized,
+          minimizedReason,
+          commit {
+            oid
+          }
           originalCommit {
             oid
           }

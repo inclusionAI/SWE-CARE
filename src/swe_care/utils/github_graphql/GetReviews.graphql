@@ -42,6 +42,11 @@ query GetReviews($prId: ID!, $cursor: String) {
               replyTo {
                 id
               }
+              isMinimized,
+              minimizedReason,
+              commit {
+                oid
+              }
               originalCommit {
                 oid
               }

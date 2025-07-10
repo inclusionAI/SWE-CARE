@@ -104,6 +104,11 @@ query GetSpecificPullRequest($owner: String!, $name: String!, $prNumber: Int!) {
               replyTo {
                 id
               }
+              isMinimized,
+              minimizedReason,
+              commit {
+                oid
+              }
               originalCommit {
                 oid
               }

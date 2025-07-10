@@ -111,6 +111,11 @@ query GetMergedPullRequests($owner: String!, $name: String!, $prCursor: String, 
                 replyTo {
                     id
                 }
+                isMinimized,
+                minimizedReason,
+                commit {
+                  oid
+                }
                 originalCommit {
                     oid
                 }
