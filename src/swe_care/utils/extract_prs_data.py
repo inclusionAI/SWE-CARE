@@ -1,3 +1,4 @@
+import re
 from collections import defaultdict
 from datetime import datetime
 from functools import lru_cache
@@ -5,8 +6,9 @@ from typing import Any, Optional
 
 from loguru import logger
 
-from swe_care.schema.dataset import ReferenceReviewComment
+from swe_care.schema.collect import LabeledReviewComment, ReviewCommentLabels
 from swe_care.utils.github import GitHubAPI
+from swe_care.utils.patch import is_line_changed_in_patch
 
 
 def extract_problem_statement(closing_issues: list[dict[str, Any]]) -> str:
@@ -97,34 +99,39 @@ def extract_hints(
     return "\n".join(hints_parts).strip()
 
 
-def extract_reference_review_comments(
-    pr_data: dict[str, Any], commit_to_review: str
-) -> list[ReferenceReviewComment]:
-    """Extract reference review comments that are resolved for the given commit.
+def extract_labeled_review_comments_by_commit(
+    pr_data: dict[str, Any],
+    commit_to_review: str,
+    merged_commit: str,
+    repo: str,
+    tokens: Optional[list[str]] = None,
+) -> list[LabeledReviewComment]:
+    """
+    Extract and label review comments for a given commit.
 
     Args:
         pr_data: PR data containing reviews and review threads
         commit_to_review: The commit OID to filter comments for
+        merged_commit: The final merged commit
+        repo: Repository name in format 'owner/repo'
+        tokens: GitHub API tokens
 
     Returns:
-        List of resolved review comments for the specified commit.
+        List of labeled review comments for the specified commit.
     """
-    reference_review_comments = []
+    labeled_comments = []
 
-    # Get all review threads that are resolved
+    # Get all review threads
     review_threads = pr_data.get("reviewThreads", {}).get("nodes", [])
-    resolved_review_threads_with_comment_ids = defaultdict(list)
+    review_threads_with_comment_ids = defaultdict(list)
 
-    # Collect IDs of comments in resolved threads, mapping thread ID to list of comment IDs
+    # Collect IDs of comments in threads, mapping thread ID to list of comment IDs
     for thread in review_threads:
-        if thread.get("isResolved", False):
-            thread_comments = thread.get("comments", {}).get("nodes", [])
-            for comment in thread_comments:
-                comment_id = comment.get("id")
-                if comment_id:
-                    resolved_review_threads_with_comment_ids[thread.get("id")].append(
-                        comment_id
-                    )
+        thread_comments = thread.get("comments", {}).get("nodes", [])
+        for comment in thread_comments:
+            comment_id = comment.get("id")
+            if comment_id:
+                review_threads_with_comment_ids[thread.get("id")].append(comment_id)
 
     # Get all review comments from all reviews
     reviews = pr_data.get("reviews", {}).get("nodes", [])
@@ -137,10 +144,10 @@ def extract_reference_review_comments(
             if comment_id:
                 comment_id_to_comment[comment_id] = comment
 
-    # Group comments by thread for resolved threads with matching commit
+    # Group comments by thread for review threads with matching commit
     thread_comments_map = defaultdict(list)
 
-    for thread_id, comment_ids in resolved_review_threads_with_comment_ids.items():
+    for thread_id, comment_ids in review_threads_with_comment_ids.items():
         for comment_id in comment_ids:
             comment = comment_id_to_comment.get(comment_id)
             if comment:
@@ -149,7 +156,24 @@ def extract_reference_review_comments(
                 if original_commit and original_commit.get("oid") == commit_to_review:
                     thread_comments_map[thread_id].append(comment)
 
-    # Create ReferenceReviewComment for each resolved thread with matching comments
+    # Get PR author login for comparison
+    pr_author_login = pr_data.get("author", {}).get("login", "")
+
+    # Get patch for line change detection
+    patch_content = ""
+    try:
+        patch_content = fetch_patch_between_commits(
+            repo=repo,
+            base_commit=commit_to_review,
+            head_commit=merged_commit,
+            tokens=tokens,
+        )
+    except Exception as e:
+        logger.warning(
+            f"Failed to get patch for {commit_to_review} -> {merged_commit}: {e}"
+        )
+
+    # Create LabeledReviewComment for each review thread with matching comments
     for thread_id, comments in thread_comments_map.items():
         if not comments:
             continue
@@ -157,10 +181,61 @@ def extract_reference_review_comments(
         # Sort comments by createdAt date
         comments.sort(key=lambda c: c.get("createdAt", ""))
 
-        # Aggregate comment bodies
-        aggregated_text = "\n".join(
-            comment.get("body", "") for comment in comments if comment.get("body")
-        )
+        # Aggregate comment bodies with user differentiation
+        aggregated_parts = []
+        user_mapping = {}  # Maps actual username to numbered identifier
+        user_counter = 1  # Counter for assigning user numbers
+
+        for comment in comments:
+            comment_body = comment.get("body", "")
+            if comment_body:
+                # Replace @mentions in comment body with censored usernames
+                def replace_mention(match):
+                    nonlocal user_counter
+                    mentioned_username = match.group(1)
+
+                    # Use @author if it's the PR author
+                    if mentioned_username == pr_author_login:
+                        return "@author"
+                    else:
+                        # For non-author users, assign or reuse numbered identifier
+                        if mentioned_username not in user_mapping:
+                            if mentioned_username:  # Valid username
+                                user_mapping[mentioned_username] = (
+                                    f"@user{user_counter}"
+                                )
+                                user_counter += 1
+                            else:  # Empty or missing username (shouldn't happen in this context)
+                                user_mapping[mentioned_username] = "@unknown"
+                        return user_mapping[mentioned_username]
+
+                # Replace all @mentions in the comment body
+                comment_body = re.sub(r"@(\w+)", replace_mention, comment_body)
+
+                # Get comment author login
+                comment_author = comment.get("author", {})
+                if comment_author:
+                    author_login = comment_author.get("login", "")
+
+                    # Use @author if it's the PR author
+                    if author_login == pr_author_login:
+                        user_identifier = "@author"
+                    else:
+                        # For non-author users, assign or reuse numbered identifier
+                        if author_login not in user_mapping:
+                            if author_login:  # Valid username
+                                user_mapping[author_login] = f"@user{user_counter}"
+                                user_counter += 1
+                            else:  # Empty or missing username
+                                user_mapping[author_login] = "@unknown"
+                        user_identifier = user_mapping[author_login]
+
+                    aggregated_parts.append(f"{user_identifier}\n{comment_body}")
+                else:
+                    # Fallback if author information is missing
+                    aggregated_parts.append(f"@unknown\n{comment_body}")
+
+        aggregated_text = "\n".join(aggregated_parts)
 
         # Use the first comment for other fields since they should be the same for the thread
         first_comment = comments[0]
@@ -173,7 +248,41 @@ def extract_reference_review_comments(
                 break
 
         if corresponding_thread and aggregated_text:
-            reference_review_comment = ReferenceReviewComment(
+            # Extract thread metadata for labels
+            is_resolved = corresponding_thread.get("isResolved", False)
+            is_outdated = corresponding_thread.get("isOutdated", False)
+            is_collapsed = corresponding_thread.get("isCollapsed", False)
+
+            # Determine the line number to check for line change detection
+            line_to_check = None
+            if first_comment.get("line") is not None:
+                line_to_check = first_comment.get("line")
+            elif first_comment.get("originalLine") is not None:
+                line_to_check = first_comment.get("originalLine")
+            elif first_comment.get("startLine") is not None:
+                line_to_check = first_comment.get("startLine")
+            elif first_comment.get("originalStartLine") is not None:
+                line_to_check = first_comment.get("originalStartLine")
+
+            # Check if referenced line was changed in merged commit
+            referenced_line_changed = False
+            if (
+                line_to_check is not None
+                and first_comment.get("path")
+                and patch_content
+            ):
+                try:
+                    referenced_line_changed = is_line_changed_in_patch(
+                        patch_content=patch_content,
+                        file_path=first_comment.get("path"),
+                        line_number=line_to_check,
+                    )
+                except Exception as e:
+                    logger.warning(
+                        f"Failed to check line change for {first_comment.get('path')}:{line_to_check}: {e}"
+                    )
+
+            labeled_comment = LabeledReviewComment(
                 text=aggregated_text,
                 path=first_comment.get("path", ""),
                 diff_hunk=first_comment.get("diffHunk"),
@@ -181,10 +290,16 @@ def extract_reference_review_comments(
                 start_line=first_comment.get("startLine"),
                 original_line=first_comment.get("originalLine"),
                 original_start_line=first_comment.get("originalStartLine"),
+                labels=ReviewCommentLabels(
+                    referenced_line_changed_in_merged_commit=referenced_line_changed,
+                    is_resolved=is_resolved,
+                    is_outdated=is_outdated,
+                    is_collapsed=is_collapsed,
+                ),
             )
-            reference_review_comments.append(reference_review_comment)
+            labeled_comments.append(labeled_comment)
 
-    return reference_review_comments
+    return labeled_comments
 
 
 def fetch_patch_between_commits(

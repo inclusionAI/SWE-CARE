@@ -5,37 +5,12 @@ Evaluate commits in PRs using heuristic rules.
 import json
 import re
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from dataclasses_json import dataclass_json
 from loguru import logger
 
-from swe_care.utils.extract_prs_data import extract_reference_review_comments
-
-
-@dataclass_json
-@dataclass
-class CommitEvaluationResult:
-    """Results from evaluating a commit."""
-
-    commit_sha: str
-    total_score: float
-    rule_results: dict[str, bool | float]
-    rule_category: dict[str, str]
-
-
-@dataclass_json
-@dataclass
-class PRCommitEvaluation:
-    """Results from evaluating a PR."""
-
-    repo_owner: str
-    repo_name: str
-    pr_number: int
-    url: str
-    commits: list[CommitEvaluationResult]
+from swe_care.schema.collect import CommitEvaluationResult, PRCommitEvaluation
 
 
 class CommitEvaluator:
@@ -163,11 +138,8 @@ class CommitEvaluator:
         Higher score for commits that have review comments that were resolved,
         indicating they received meaningful feedback and improvements.
         """
-        reference_review_comments = extract_reference_review_comments(
-            pr_data, commit_data.get("commit", {}).get("oid", "")
-        )
-
-        return len(reference_review_comments) > 0
+        # TODO
+        raise NotImplementedError
 
     def _evaluate_has_associated_review_comments(
         self, commit_data: dict[str, Any], pr_data: dict[str, Any]
@@ -224,10 +196,10 @@ class CommitEvaluator:
         """
         commit_oid = commit_data.get("commit", {}).get("oid", "")
         base_commit = pr_data.get("baseRefOid", "")
-        head_commit = pr_data.get("headRefOid", "")
+        merge_commit = pr_data.get("headRefOid", "")
 
         # Base commit and head commit (final merge) should have low scores
-        if commit_oid == base_commit or commit_oid == head_commit:
+        if commit_oid == base_commit or commit_oid == merge_commit:
             return False
 
         return True

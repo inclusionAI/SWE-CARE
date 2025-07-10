@@ -16,6 +16,7 @@ from swe_care.schema.dataset import (
     CodeReviewTaskInstance,
     CodeReviewTaskMetadata,
     CommitToReview,
+    ReferenceReviewComment,
     ResolvedIssue,
 )
 from swe_care.utils.estimate import (
@@ -25,8 +26,8 @@ from swe_care.utils.estimate import (
 )
 from swe_care.utils.extract_prs_data import (
     extract_hints,
+    extract_labeled_review_comments_by_commit,
     extract_problem_statement,
-    extract_reference_review_comments,
     fetch_patch_between_commits,
     fetch_pr_patch,
     fetch_repo_language,
@@ -202,9 +203,22 @@ def build_code_review_dataset_single_file(
                 hints_text = extract_hints(pr_data, head_commit_to_review)
 
                 # Extract reference review comments for the chosen commit
-                reference_review_comments = extract_reference_review_comments(
-                    pr_data, head_commit_to_review
+                reference_review_comments = extract_labeled_review_comments_by_commit(
+                    pr_data, head_commit_to_review, merge_commit, repo, tokens
                 )
+                # Convert to ReferenceReviewComment
+                reference_review_comments = [
+                    ReferenceReviewComment(
+                        text=comment.text,
+                        path=comment.path,
+                        diff_hunk=comment.diff_hunk,
+                        line=comment.line,
+                        start_line=comment.start_line,
+                        original_line=comment.original_line,
+                        original_start_line=comment.original_start_line,
+                    )
+                    for comment in reference_review_comments
+                ]
 
                 # Extract patches
                 patch_to_review = fetch_patch_between_commits(
