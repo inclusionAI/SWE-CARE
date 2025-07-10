@@ -11,7 +11,7 @@ class ReviewCommentLabels:
     """Labels for a review comment."""
 
     referenced_line_changed_in_merged_commit: bool
-    """Whether the referenced line was changed in the merged commit"""
+    """Whether the referenced line was changed in the merged commit. If True, the review comment was more likely to address real issues that got fixed."""
     is_resolved: bool
     """Whether the review thread was resolved"""
     is_outdated: bool
@@ -31,19 +31,23 @@ class LabeledReviewComment(ReferenceReviewComment):
 
 @dataclass_json
 @dataclass
-class CommitWithLabeledReviewComments:
-    """Schema for commit with labeled review comments."""
+class CommitClassificationResult:
+    """Schema combining commit evaluation and labeled review comments."""
 
     commit_sha: str
     """The commit SHA"""
     labeled_review_comments: list[LabeledReviewComment]
     """List of labeled review comments for this commit"""
+    total_score: float
+    """Total evaluation score for the commit"""
+    rule_results: dict[str, bool | float]
+    """Results from evaluation rules"""
 
 
 @dataclass_json
 @dataclass
-class PRCommitWithLabeledReviewComments:
-    """Schema for PR commit with labeled review comments."""
+class PRClassification:
+    """Schema for PR with combined commit classification data."""
 
     repo_owner: str
     """Repository owner"""
@@ -53,28 +57,5 @@ class PRCommitWithLabeledReviewComments:
     """Pull request number"""
     url: str
     """Pull request URL"""
-    commit_with_labeled_review_comments: list[CommitWithLabeledReviewComments]
-    """List of commits with their labeled review comments"""
-
-
-@dataclass_json
-@dataclass
-class CommitEvaluationResult:
-    """Results from evaluating a commit."""
-
-    commit_sha: str
-    total_score: float
-    rule_results: dict[str, bool | float]
-    rule_category: dict[str, str]
-
-
-@dataclass_json
-@dataclass
-class PRCommitEvaluation:
-    """Results from evaluating a PR."""
-
-    repo_owner: str
-    repo_name: str
-    pr_number: int
-    url: str
-    commits: list[CommitEvaluationResult]
+    commits: list[CommitClassificationResult]
+    """List of commits with classification data (evaluation + labeled review comments)"""

@@ -76,24 +76,30 @@ Here's an example of the command-line usage for each step:
         --max-number 20
     ```
 
-3. **Evaluate Commits**: Evaluate the collected commits from the PRs.
+3. **Classify PRs Data**: Analyze and classify PR data by evaluating commits and labeling review comments.
 
     **Single file processing:**
 
     ```bash
-    python -m swe_care.collect evaluate_commits \
+    python -m swe_care.collect classify_prs_data \
         --graphql-prs-data-file "results/graphql_prs_data/<repo_owner>__<repo_name>_graphql_prs_data.jsonl" \
-        --output-dir "./results/evaluate_commits"
+        --output-dir "./results/classify_prs_data" \
+        --tokens "your_github_pat"
     ```
 
     **Batch processing (multiple repositories):**
 
     ```bash
-    python -m swe_care.collect evaluate_commits \
+    python -m swe_care.collect classify_prs_data \
         --graphql-prs-data-file "results/graphql_prs_data/" \
-        --output-dir "./results/evaluate_commits" \
+        --output-dir "./results/classify_prs_data" \
+        --tokens "your_github_pat" \
         --jobs 4
     ```
+
+    This step combines two important analyses:
+    * **Commit Evaluation**: Uses heuristic rules to score commits based on quality indicators (message clarity, size, review activity, etc.)
+    * **Review Comment Classification**: Extracts and labels review comments based on whether referenced lines were actually changed in the merged commit, or the review thread is resolved, outdated, or collapsed.
 
 4. **Build Code Review Dataset**: Build the final dataset for the code review task.
 
@@ -102,7 +108,7 @@ Here's an example of the command-line usage for each step:
     ```bash
     python -m swe_care.collect build_code_review_dataset \
         --graphql-prs-data-file "results/graphql_prs_data/<repo_owner>__<repo_name>_graphql_prs_data.jsonl" \
-        --pr-commits-evaluation-file "results/evaluate_commits/<repo_owner>__<repo_name>_pr_commits_evaluation.jsonl" \
+        --pr-classification-file "results/classify_prs_data/<repo_owner>__<repo_name>_pr_classification.jsonl" \
         --output-dir "./results/dataset" \
         --tokens "your_github_pat"
     ```
@@ -112,7 +118,7 @@ Here's an example of the command-line usage for each step:
     ```bash
     python -m swe_care.collect build_code_review_dataset \
         --graphql-prs-data-file "results/graphql_prs_data/" \
-        --pr-commits-evaluation-file "results/evaluate_commits/" \
+        --pr-classification-file "results/classify_prs_data/" \
         --output-dir "./results/dataset" \
         --tokens "your_github_pat" \
         --jobs 4
@@ -120,7 +126,7 @@ Here's an example of the command-line usage for each step:
 
     **Note**: When using directory inputs, the tool will automatically:
     * Recursively find all `*_graphql_prs_data.jsonl` files in the specified directory
-    * Match them with corresponding `*_pr_commits_evaluation.jsonl` files
+    * Match them with corresponding `*_pr_classification.jsonl` files
     * Process multiple file pairs concurrently using the specified number of jobs
 
 You can find more details about the arguments for each script by running `python -m swe_care.collect <subcommand> -h`.

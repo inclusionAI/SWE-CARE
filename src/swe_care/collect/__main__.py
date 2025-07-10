@@ -5,13 +5,11 @@ from pathlib import Path
 from loguru import logger
 
 import swe_care.collect.build_code_review_dataset
-import swe_care.collect.classify_review_comments
-import swe_care.collect.evaluate_commits
+import swe_care.collect.classify_prs_data
 import swe_care.collect.get_graphql_prs_data
 import swe_care.collect.get_top_repos
 from swe_care.collect.build_code_review_dataset import build_code_review_dataset
-from swe_care.collect.classify_review_comments import classify_review_comments
-from swe_care.collect.evaluate_commits import evaluate_commits
+from swe_care.collect.classify_prs_data import classify_prs_data
 from swe_care.collect.get_graphql_prs_data import get_graphql_prs_data
 from swe_care.collect.get_top_repos import get_top_repos
 
@@ -25,13 +23,9 @@ SUBCOMMAND_MAP = {
         "function": get_graphql_prs_data,
         "help": swe_care.collect.get_graphql_prs_data.__doc__,
     },
-    "classify_review_comments": {
-        "function": classify_review_comments,
-        "help": swe_care.collect.classify_review_comments.__doc__,
-    },
-    "evaluate_commits": {
-        "function": evaluate_commits,
-        "help": swe_care.collect.evaluate_commits.__doc__,
+    "classify_prs_data": {
+        "function": classify_prs_data,
+        "help": swe_care.collect.classify_prs_data.__doc__,
     },
     "build_code_review_dataset": {
         "function": build_code_review_dataset,
@@ -156,25 +150,7 @@ def get_args():
                 default=None,
                 help="Resume fetching PRs after this cursor (useful for resuming interrupted runs). When used with --repo-file, acts as fallback for repositories without pr_cursor field in the file.",
             )
-        case "classify_review_comments":
-            sub_parser = argparse.ArgumentParser(
-                prog=f"swe_care.collect {subcommand}",
-                parents=[global_parser],
-                description=SUBCOMMAND_MAP[subcommand]["help"],
-            )
-            sub_parser.add_argument(
-                "--graphql-prs-data-file",
-                type=Path,
-                required=True,
-                help="Path to GraphQL PRs data file or directory containing *_graphql_prs_data.jsonl files",
-            )
-            sub_parser.add_argument(
-                "--jobs",
-                type=int,
-                default=2,
-                help="Number of concurrent jobs/threads to use (default: 2)",
-            )
-        case "evaluate_commits":
+        case "classify_prs_data":
             sub_parser = argparse.ArgumentParser(
                 prog=f"swe_care.collect {subcommand}",
                 parents=[global_parser],
@@ -205,10 +181,10 @@ def get_args():
                 help="Path to GraphQL PRs data file or directory containing *_graphql_prs_data.jsonl files",
             )
             sub_parser.add_argument(
-                "--pr-commits-evaluation-file",
+                "--pr-classification-file",
                 type=Path,
                 required=True,
-                help="Path to PR commits evaluation file or directory containing *_pr_commits_evaluation.jsonl files",
+                help="Path to PR classification file or directory containing *_pr_classification.jsonl files",
             )
             sub_parser.add_argument(
                 "--skip-existing",
@@ -258,15 +234,7 @@ def main():
                     after_pr_cursor=args.after_pr_cursor,
                     **common_kwargs,
                 )
-            case "classify_review_comments":
-                function(
-                    graphql_prs_data_file=args.graphql_prs_data_file,
-                    jobs=args.jobs,
-                    **common_kwargs,
-                )
-            case "evaluate_commits":
-                logger.warning("tokens are not used for evaluate_commits")
-                common_kwargs.pop("tokens")
+            case "classify_prs_data":
                 function(
                     graphql_prs_data_file=args.graphql_prs_data_file,
                     jobs=args.jobs,
@@ -275,7 +243,7 @@ def main():
             case "build_code_review_dataset":
                 function(
                     graphql_prs_data_file=args.graphql_prs_data_file,
-                    pr_commits_evaluation_file=args.pr_commits_evaluation_file,
+                    pr_classification_file=args.pr_classification_file,
                     skip_existing=args.skip_existing,
                     jobs=args.jobs,
                     **common_kwargs,

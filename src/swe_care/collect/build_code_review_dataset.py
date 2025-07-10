@@ -11,7 +11,7 @@ from typing import Optional
 from loguru import logger
 from tqdm import tqdm
 
-from swe_care.collect.evaluate_commits import PRCommitEvaluation
+from swe_care.schema.collect import PRClassification
 from swe_care.schema.dataset import (
     CodeReviewTaskInstance,
     CodeReviewTaskMetadata,
@@ -26,7 +26,6 @@ from swe_care.utils.estimate import (
 )
 from swe_care.utils.extract_prs_data import (
     extract_hints,
-    extract_labeled_review_comments_by_commit,
     extract_problem_statement,
     fetch_patch_between_commits,
     fetch_pr_patch,
@@ -35,51 +34,38 @@ from swe_care.utils.extract_prs_data import (
 
 
 def select_best_commit_to_review(
-    pr_commits_evaluation: PRCommitEvaluation,
+    pr_classification: PRClassification,
 ) -> str:
     """Choose the best commit to be reviewed.
 
     For now, returns the commit with the highest total score.
+    The commits in PRClassification are already sorted by score (best first).
     """
-    # Sort commits by total score in descending order
-    sorted_commits = sorted(
-        pr_commits_evaluation.commits, key=lambda x: x.total_score, reverse=True
-    )
+    if not pr_classification.commits:
+        raise ValueError("No commits found in PR classification data")
 
-    return sorted_commits[0].commit_sha
+    # Return the first commit (highest scored)
+    return pr_classification.commits[0].commit_sha
 
 
 def load_existing_instance_ids(output_file: Path) -> set[str]:
-    """
-    Load existing instance IDs from the output file.
-
-    Args:
-        output_file: Path to the output file
-
-    Returns:
-        Set of existing instance IDs
-    """
-    existing_ids = set()
+    """Load existing instance IDs from the output file."""
+    existing_instances = set()
     if output_file.exists():
-        try:
-            with open(output_file, "r") as f:
-                for line in f:
-                    try:
-                        data = json.loads(line.strip())
-                        instance_id = data.get("instance_id")
-                        if instance_id:
-                            existing_ids.add(instance_id)
-                    except json.JSONDecodeError:
-                        continue
-        except Exception as e:
-            logger.warning(f"Error reading existing instances from {output_file}: {e}")
-
-    return existing_ids
+        with open(output_file, "r") as f:
+            for line in f:
+                try:
+                    instance = json.loads(line.strip())
+                    if "instance_id" in instance:
+                        existing_instances.add(instance["instance_id"])
+                except json.JSONDecodeError:
+                    continue
+    return existing_instances
 
 
 def build_code_review_dataset_single_file(
     graphql_prs_data_file: Path,
-    pr_commits_evaluation_file: Path,
+    pr_classification_file: Path,
     output_file: Path,
     existing_instances: set[str],
     file_lock: threading.Lock,
@@ -91,7 +77,7 @@ def build_code_review_dataset_single_file(
 
     Args:
         graphql_prs_data_file: Path to GraphQL PRs data file (output from get_graphql_prs_data)
-        pr_commits_evaluation_file: Path to PR commits evaluation file (output from evaluate_commits)
+        pr_classification_file: Path to PR classification file (output from classify_prs_data)
         output_file: Path to the output file
         existing_instances: Set of existing instance IDs to check against
         file_lock: Threading lock for file operations
@@ -99,14 +85,14 @@ def build_code_review_dataset_single_file(
         skip_existing: If True, skip processing existing instance_id.
                       If False, replace existing instance_id data.
     """
-    _pr_commits_evaluation: list[PRCommitEvaluation] = [
-        PRCommitEvaluation.from_json(e)
-        for e in pr_commits_evaluation_file.read_text().split("\n")
+    _pr_classifications: list[PRClassification] = [
+        PRClassification.from_json(e)
+        for e in pr_classification_file.read_text().split("\n")
         if e
     ]
 
-    pr_commits_evaluation_map: dict[str, PRCommitEvaluation] = {
-        e.url: e for e in _pr_commits_evaluation
+    pr_classification_map: dict[str, PRClassification] = {
+        e.url: e for e in _pr_classifications
     }
 
     # Count the number of lines in the input file
@@ -147,15 +133,15 @@ def build_code_review_dataset_single_file(
                 base_commit = pr_data.get("baseRefOid", "")
                 merge_commit = pr_data.get("headRefOid", "")
 
-                if url not in pr_commits_evaluation_map:
+                if url not in pr_classification_map:
                     logger.warning(
-                        f"PR URL {url} not found in evaluation data, skipping"
+                        f"PR URL {url} not found in classification data, skipping"
                     )
                     continue
 
-                # Select the best commit for review
+                # Select the best commit for review using the classification data
                 head_commit_to_review = select_best_commit_to_review(
-                    pr_commits_evaluation_map[url]
+                    pr_classification_map[url]
                 )
 
                 # Generate instance ID early to check if it exists
@@ -202,23 +188,25 @@ def build_code_review_dataset_single_file(
                 # Extract hints (comments from issues before the chosen commit)
                 hints_text = extract_hints(pr_data, head_commit_to_review)
 
-                # Extract reference review comments for the chosen commit
-                reference_review_comments = extract_labeled_review_comments_by_commit(
-                    pr_data, head_commit_to_review, merge_commit, repo, tokens
-                )
-                # Convert to ReferenceReviewComment
-                reference_review_comments = [
-                    ReferenceReviewComment(
-                        text=comment.text,
-                        path=comment.path,
-                        diff_hunk=comment.diff_hunk,
-                        line=comment.line,
-                        start_line=comment.start_line,
-                        original_line=comment.original_line,
-                        original_start_line=comment.original_start_line,
-                    )
-                    for comment in reference_review_comments
-                ]
+                # Get reference review comments from the classification data
+                reference_review_comments = []
+                pr_classification = pr_classification_map[url]
+                for commit_classification in pr_classification.commits:
+                    if commit_classification.commit_sha == head_commit_to_review:
+                        # Convert labeled review comments to reference review comments
+                        reference_review_comments = [
+                            ReferenceReviewComment(
+                                text=comment.text,
+                                path=comment.path,
+                                diff_hunk=comment.diff_hunk,
+                                line=comment.line,
+                                start_line=comment.start_line,
+                                original_line=comment.original_line,
+                                original_start_line=comment.original_start_line,
+                            )
+                            for comment in commit_classification.labeled_review_comments
+                        ]
+                        break
 
                 # Extract patches
                 patch_to_review = fetch_patch_between_commits(
@@ -280,34 +268,34 @@ def build_code_review_dataset_single_file(
     )
 
 
-def find_matching_evaluation_file(
+def find_matching_classification_file(
     graphql_data_file: Path,
-    evaluation_dir: Path,
+    classification_dir: Path,
 ) -> Path | None:
     """
-    Find the corresponding evaluation file for a given graphql data file.
+    Find the corresponding classification file for a given graphql data file.
 
     Args:
         graphql_data_file: Path to a graphql data file (e.g., org__repo_graphql_prs_data.jsonl)
-        evaluation_dir: Directory containing evaluation files
+        classification_dir: Directory containing classification files
 
     Returns:
-        Path to the matching evaluation file, or None if not found
+        Path to the matching classification file, or None if not found
     """
     # Extract repo information from the graphql data file name
     # Expected format: {org}__{repo}_graphql_prs_data.jsonl
     file_name = graphql_data_file.stem
     if file_name.endswith("_graphql_prs_data"):
         repo_part = file_name[: -len("_graphql_prs_data")]
-        expected_eval_file = f"{repo_part}_pr_commits_evaluation.jsonl"
+        expected_classification_file = f"{repo_part}_pr_classification.jsonl"
 
-        # Look for the evaluation file in the evaluation directory
-        eval_file = evaluation_dir / expected_eval_file
-        if eval_file.exists():
-            return eval_file
+        # Look for the classification file in the classification directory
+        classification_file = classification_dir / expected_classification_file
+        if classification_file.exists():
+            return classification_file
 
         # Also try recursive search in case files are in subdirectories
-        matches = list(evaluation_dir.rglob(expected_eval_file))
+        matches = list(classification_dir.rglob(expected_classification_file))
         if matches:
             return matches[0]
 
@@ -316,7 +304,7 @@ def find_matching_evaluation_file(
 
 def build_code_review_dataset(
     graphql_prs_data_file: Path | str,
-    pr_commits_evaluation_file: Path | str,
+    pr_classification_file: Path | str,
     output_dir: Path | str = None,
     tokens: Optional[list[str]] = None,
     skip_existing: bool = False,
@@ -327,7 +315,7 @@ def build_code_review_dataset(
 
     Args:
         graphql_prs_data_file: Path to GraphQL PRs data file or directory containing *_graphql_prs_data.jsonl files
-        pr_commits_evaluation_file: Path to PR commits evaluation file or directory containing *_pr_commits_evaluation.jsonl files
+        pr_classification_file: Path to PR classification file or directory containing *_pr_classification.jsonl files
         output_dir: Directory to save the output data
         tokens: Optional list of GitHub tokens for API requests
         skip_existing: If True, skip processing existing instance_id in the output file.
@@ -336,8 +324,8 @@ def build_code_review_dataset(
     """
     if isinstance(graphql_prs_data_file, str):
         graphql_prs_data_file = Path(graphql_prs_data_file)
-    if isinstance(pr_commits_evaluation_file, str):
-        pr_commits_evaluation_file = Path(pr_commits_evaluation_file)
+    if isinstance(pr_classification_file, str):
+        pr_classification_file = Path(pr_classification_file)
     if isinstance(output_dir, str):
         output_dir = Path(output_dir)
     if output_dir is None:
@@ -356,24 +344,24 @@ def build_code_review_dataset(
     file_lock = threading.Lock()
 
     # Determine if inputs are files or directories
-    if graphql_prs_data_file.is_file() and pr_commits_evaluation_file.is_file():
+    if graphql_prs_data_file.is_file() and pr_classification_file.is_file():
         # Single file processing
         logger.info(
-            f"Processing single file pair: {graphql_prs_data_file} & {pr_commits_evaluation_file}"
+            f"Processing single file pair: {graphql_prs_data_file} & {pr_classification_file}"
         )
         build_code_review_dataset_single_file(
             graphql_prs_data_file,
-            pr_commits_evaluation_file,
+            pr_classification_file,
             output_file,
             existing_instances,
             file_lock,
             tokens,
             skip_existing,
         )
-    elif graphql_prs_data_file.is_dir() and pr_commits_evaluation_file.is_dir():
+    elif graphql_prs_data_file.is_dir() and pr_classification_file.is_dir():
         # Directory processing with recursive search
         logger.info(
-            f"Processing directories: {graphql_prs_data_file} & {pr_commits_evaluation_file}"
+            f"Processing directories: {graphql_prs_data_file} & {pr_classification_file}"
         )
 
         graphql_files = list(graphql_prs_data_file.rglob("*_graphql_prs_data.jsonl"))
@@ -386,13 +374,15 @@ def build_code_review_dataset(
         # Find matching pairs
         file_pairs = []
         for graphql_file in graphql_files:
-            eval_file = find_matching_evaluation_file(
-                graphql_file, pr_commits_evaluation_file
+            classification_file = find_matching_classification_file(
+                graphql_file, pr_classification_file
             )
-            if eval_file:
-                file_pairs.append((graphql_file, eval_file))
+            if classification_file:
+                file_pairs.append((graphql_file, classification_file))
             else:
-                logger.warning(f"No matching evaluation file found for {graphql_file}")
+                logger.warning(
+                    f"No matching classification file found for {graphql_file}"
+                )
 
         if not file_pairs:
             logger.warning("No matching file pairs found")
@@ -407,19 +397,19 @@ def build_code_review_dataset(
                 executor.submit(
                     build_code_review_dataset_single_file,
                     graphql_file,
-                    eval_file,
+                    classification_file,
                     output_file,
                     existing_instances,
                     file_lock,
                     tokens,
                     skip_existing,
-                ): (graphql_file, eval_file)
-                for graphql_file, eval_file in file_pairs
+                ): (graphql_file, classification_file)
+                for graphql_file, classification_file in file_pairs
             }
 
             # Process completed tasks
             for future in as_completed(future_to_files):
-                graphql_file, eval_file = future_to_files[future]
+                graphql_file, classification_file = future_to_files[future]
                 try:
                     future.result()
                     logger.success(f"Successfully processed {graphql_file.name}")
@@ -427,7 +417,7 @@ def build_code_review_dataset(
                     logger.error(f"Error processing {graphql_file.name}: {e}")
     else:
         raise ValueError(
-            "Both graphql_prs_data_file and pr_commits_evaluation_file must be either files or directories"
+            "Both graphql_prs_data_file and pr_classification_file must be either files or directories"
         )
 
     logger.info("All dataset building completed")

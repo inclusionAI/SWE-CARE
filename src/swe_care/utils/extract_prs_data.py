@@ -151,8 +151,8 @@ def extract_labeled_review_comments_by_commit(
         for comment_id in comment_ids:
             comment = comment_id_to_comment.get(comment_id)
             if comment:
-                # Check if the comment's originalCommit matches commit_to_review
-                original_commit = comment.get("originalCommit", {})
+                # Check if the comment's commit matches commit_to_review
+                original_commit = comment.get("commit", {})
                 if original_commit and original_commit.get("oid") == commit_to_review:
                     thread_comments_map[thread_id].append(comment)
 
