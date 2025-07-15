@@ -44,6 +44,8 @@ class CommitClassificationResult:
     """Total evaluation score for the commit"""
     rule_results: dict[str, bool | float]
     """Results from evaluation rules"""
+    patch: str
+    """Patch content between base commit and this commit"""
 
 
 @dataclass_json

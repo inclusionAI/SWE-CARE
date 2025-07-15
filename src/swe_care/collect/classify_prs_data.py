@@ -23,6 +23,7 @@ from swe_care.schema.collect import (
 )
 from swe_care.utils.extract_prs_data import (
     extract_labeled_review_comments_by_commit,
+    fetch_patch_between_commits,
 )
 
 
@@ -668,6 +669,12 @@ def classify_pr_data(
             logger.warning(f"PR {pr_number} missing headRefOid")
             return None
 
+        # Get base commit
+        base_commit = pr_data.get("baseRefOid", "")
+        if not base_commit:
+            logger.warning(f"PR {pr_number} missing baseRefOid")
+            return None
+
         # Get all commits
         commits = pr_data.get("commits", {}).get("nodes", [])
         if not commits:
@@ -700,12 +707,21 @@ def classify_pr_data(
                 labeled_review_comments=labeled_review_comments,
             )
 
+            # Fetch patch between base commit and current commit
+            patch = fetch_patch_between_commits(
+                repo=repo,
+                base_commit=base_commit,
+                head_commit=commit_sha,
+                tokens=tokens,
+            )
+
             # Create combined classification result
             commit_classification = CommitClassificationResult(
                 commit_sha=commit_sha,
                 labeled_review_comments=labeled_review_comments,
                 total_score=total_score,
                 rule_results=rule_results,
+                patch=patch,
             )
             commit_classification_results.append(commit_classification)
 

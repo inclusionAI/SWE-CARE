@@ -188,8 +188,9 @@ def build_code_review_dataset_single_file(
                 # Extract hints (comments from issues before the chosen commit)
                 hints_text = extract_hints(pr_data, head_commit_to_review)
 
-                # Get reference review comments from the classification data
+                # Get reference review comments and patch from the classification data
                 reference_review_comments = []
+                patch_to_review = ""
                 pr_classification = pr_classification_map[url]
                 for commit_classification in pr_classification.commits:
                     if commit_classification.commit_sha == head_commit_to_review:
@@ -206,12 +207,17 @@ def build_code_review_dataset_single_file(
                             )
                             for comment in commit_classification.labeled_review_comments
                         ]
+                        # Extract patch from classification data
+                        patch_to_review = commit_classification.patch
                         break
 
-                # Extract patches
-                patch_to_review = fetch_patch_between_commits(
-                    repo, base_commit, head_commit_to_review, tokens
-                )
+                # Extract patches if not provided in classification data
+                if not patch_to_review:
+                    patch_to_review = fetch_patch_between_commits(
+                        repo, base_commit, head_commit_to_review, tokens
+                    )
+
+                # Extract merged patch for the entire PR
                 merged_patch = fetch_pr_patch(repo, pull_number, tokens)
 
                 # Create metadata
