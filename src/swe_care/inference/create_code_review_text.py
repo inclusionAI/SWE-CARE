@@ -6,7 +6,6 @@ the original dataset and applying different file source strategies (oracle, bm25
 """
 
 import json
-import urllib.parse
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 from threading import Lock
@@ -17,7 +16,7 @@ from tqdm import tqdm
 
 from swe_care.schema.dataset import CodeReviewTaskInstance
 from swe_care.schema.inference import CodeReviewInferenceInstance
-from swe_care.utils.github import GitHubAPI
+from swe_care.utils.extract_prs_data import fetch_repo_file_content
 from swe_care.utils.load import load_code_review_dataset
 from swe_care.utils.patch import get_changed_file_paths
 
@@ -223,7 +222,6 @@ def get_oracle_files(
     Get file path and file content using oracle strategy (ground truth files).
     Ground truth files are the changed files in `diff(base_commit, commit_to_review) U diff(base_commit, merged_commit)`.
     """
-    github_api = GitHubAPI(tokens=tokens)
     changed_files = {}
 
     repo = instance.repo
@@ -249,24 +247,11 @@ def get_oracle_files(
     for file_path in changed_file_paths:
         try:
             logger.debug(f"Fetching content for {file_path}")
-            encoded_path = urllib.parse.quote(file_path, safe="")
-            content_response = github_api.call_api(
-                f"repos/{repo}/contents/{encoded_path}", params={"ref": base_commit}
-            )
-            content_data = content_response.json()
-
-            # Decode base64 content
-            if "content" in content_data and content_data.get("encoding") == "base64":
-                import base64
-
-                content = base64.b64decode(content_data["content"]).decode("utf-8")
-                changed_files[file_path] = content
-            else:
-                logger.warning(f"Unable to decode content for {file_path}")
-                changed_files[file_path] = ""
-
+            content = fetch_repo_file_content(repo, base_commit, file_path, tokens)
+            changed_files[file_path] = content
         except Exception as e:
             logger.warning(f"Failed to fetch content for {file_path}: {e}")
+            changed_files[file_path] = ""
 
     # Filter out files without content and return only the files we fetched
     result = {

@@ -1,6 +1,7 @@
 import json
 import random
 import time
+import urllib.parse
 from typing import Any, Optional
 
 import requests
@@ -240,3 +241,38 @@ class GitHubAPI:
             return response.text
 
         return self._retry_wrapper(_get_patch)()
+
+    def get_file_content(self, repo: str, commit: str, file_path: str) -> str:
+        """
+        Get the content of a file at a specific commit.
+
+        Args:
+            repo: Repository in format 'owner/repo'
+            commit: Commit SHA to fetch the file from
+            file_path: Path to the file in the repository
+
+        Returns:
+            File content as string
+
+        Raises:
+            requests.exceptions.RequestException: If the request fails
+        """
+
+        def _get_file_content():
+            encoded_path = urllib.parse.quote(file_path, safe="")
+            content_response = self.call_api(
+                f"repos/{repo}/contents/{encoded_path}", params={"ref": commit}
+            )
+            content_data = content_response.json()
+
+            # Decode base64 content
+            if "content" in content_data and content_data.get("encoding") == "base64":
+                import base64
+
+                content = base64.b64decode(content_data["content"]).decode("utf-8")
+                return content
+            else:
+                logger.warning(f"Unable to decode content for {file_path}")
+                return ""
+
+        return self._retry_wrapper(_get_file_content)()

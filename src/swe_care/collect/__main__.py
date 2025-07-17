@@ -6,10 +6,12 @@ from loguru import logger
 
 import swe_care.collect.build_code_review_dataset
 import swe_care.collect.classify_prs_data
+import swe_care.collect.convert_to_rm_samples
 import swe_care.collect.get_graphql_prs_data
 import swe_care.collect.get_top_repos
 from swe_care.collect.build_code_review_dataset import build_code_review_dataset
 from swe_care.collect.classify_prs_data import classify_prs_data
+from swe_care.collect.convert_to_rm_samples import convert_to_rm_samples
 from swe_care.collect.get_graphql_prs_data import get_graphql_prs_data
 from swe_care.collect.get_top_repos import get_top_repos
 
@@ -30,6 +32,10 @@ SUBCOMMAND_MAP = {
     "build_code_review_dataset": {
         "function": build_code_review_dataset,
         "help": swe_care.collect.build_code_review_dataset.__doc__,
+    },
+    "convert_to_rm_samples": {
+        "function": convert_to_rm_samples,
+        "help": swe_care.collect.convert_to_rm_samples.__doc__,
     },
 }
 
@@ -150,6 +156,7 @@ def get_args():
                 default=None,
                 help="Resume fetching PRs after this cursor (useful for resuming interrupted runs). When used with --repo-file, acts as fallback for repositories without pr_cursor field in the file.",
             )
+
         case "classify_prs_data":
             sub_parser = argparse.ArgumentParser(
                 prog=f"swe_care.collect {subcommand}",
@@ -168,6 +175,7 @@ def get_args():
                 default=2,
                 help="Number of concurrent jobs/threads to use (default: 2)",
             )
+
         case "build_code_review_dataset":
             sub_parser = argparse.ArgumentParser(
                 prog=f"swe_care.collect {subcommand}",
@@ -191,6 +199,38 @@ def get_args():
                 action="store_true",
                 default=False,
                 help="Skip processing existing instance_id in the output file (default: False)",
+            )
+            sub_parser.add_argument(
+                "--jobs",
+                type=int,
+                default=2,
+                help="Number of concurrent jobs/threads to use (default: 2)",
+            )
+
+        case "convert_to_rm_samples":
+            sub_parser = argparse.ArgumentParser(
+                prog=f"swe_care.collect {subcommand}",
+                parents=[global_parser],
+                description=SUBCOMMAND_MAP[subcommand]["help"],
+            )
+            sub_parser.add_argument(
+                "--graphql-prs-data-file",
+                type=Path,
+                required=True,
+                help="Path to GraphQL PRs data file or directory containing *_graphql_prs_data.jsonl files",
+            )
+            sub_parser.add_argument(
+                "--pr-classification-file",
+                type=Path,
+                required=True,
+                help="Path to PR classification file or directory containing *_pr_classification.jsonl files",
+            )
+            sub_parser.add_argument(
+                "--file-source",
+                type=str,
+                choices=["none", "base_changed_files", "reviewed_file"],
+                default="none",
+                help="Source for file content in review samples. Choices: 'none' (no file content in review samples), 'base_changed_files' (include changed files contents between base commit and commit to review), 'reviewed_file' (include changed file content to the sample the review comment applied to). Default: none",
             )
             sub_parser.add_argument(
                 "--jobs",
@@ -245,6 +285,14 @@ def main():
                     graphql_prs_data_file=args.graphql_prs_data_file,
                     pr_classification_file=args.pr_classification_file,
                     skip_existing=args.skip_existing,
+                    jobs=args.jobs,
+                    **common_kwargs,
+                )
+            case "convert_to_rm_samples":
+                function(
+                    graphql_prs_data_file=args.graphql_prs_data_file,
+                    pr_classification_file=args.pr_classification_file,
+                    file_source=args.file_source,
                     jobs=args.jobs,
                     **common_kwargs,
                 )

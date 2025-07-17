@@ -197,7 +197,7 @@ def build_code_review_dataset_single_file(
                         # Convert labeled review comments to reference review comments
                         reference_review_comments = [
                             ReferenceReviewComment(
-                                text=comment.text,
+                                text=comment.text.strip(),
                                 path=comment.path,
                                 diff_hunk=comment.diff_hunk,
                                 line=comment.line,

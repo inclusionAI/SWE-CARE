@@ -442,7 +442,7 @@ def extract_labeled_review_comments_by_commit(
                     # Fallback if author information is missing
                     aggregated_parts.append(f"@unknown:\n{comment_body}\n")
 
-        aggregated_text = "\n".join(aggregated_parts)
+        aggregated_text = "\n".join(aggregated_parts).strip()
 
         if aggregated_text:
             # Use the first comment for other fields since they should be the same for the thread
@@ -584,3 +584,21 @@ def fetch_repo_language(repo: str, tokens: Optional[list[str]] = None) -> str:
         tokens = tuple(tokens)
 
     return _fetch_repo_language_cached(repo, tokens)
+
+
+def fetch_repo_file_content(
+    repo: str, commit: str, file_path: str, tokens: Optional[list[str]] = None
+) -> str:
+    """Get the content of a file from a repository at a specific commit with caching."""
+
+    @lru_cache(maxsize=128)
+    def _fetch_repo_file_content_cached(
+        repo: str, commit: str, file_path: str, tokens: Optional[tuple[str, ...]] = None
+    ) -> str:
+        """Cached version of fetch_repo_file_content."""
+        github_api = GitHubAPI(tokens=tokens)
+        return github_api.get_file_content(repo, commit, file_path)
+
+    if tokens:
+        tokens = tuple(tokens)
+    return _fetch_repo_file_content_cached(repo, commit, file_path, tokens)

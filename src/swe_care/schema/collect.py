@@ -1,4 +1,5 @@
 from dataclasses import dataclass
+from typing import Literal
 
 from dataclasses_json import dataclass_json
 
@@ -63,3 +64,37 @@ class PRClassification:
     """Pull request URL"""
     commits: list[CommitClassificationResult]
     """List of commits with classification data (evaluation + labeled review comments)"""
+
+
+@dataclass_json
+@dataclass
+class RewardModelTrainingSampleMetadata:
+    """Metadata for reward model training sample instances."""
+
+    repo: str
+    """Repository in format 'owner/name'"""
+    pr_number: int
+    """Pull request number"""
+    url: str
+    """Pull request URL"""
+    commit_to_review: str
+    """Commit SHA being reviewed"""
+    file_source: Literal["none", "base_changed_files", "reviewed_file"]
+    """Source for file content ('none', 'base_changed_files', or 'reviewed_file')"""
+
+
+@dataclass_json
+@dataclass
+class RewardModelTrainingSample:
+    """Schema for reward model training sample instances."""
+
+    problem_statement: str
+    """The problem statement extracted from closing issues or PR description"""
+    patch_to_review: str
+    """The patch content to be reviewed"""
+    pos_review: list[str]
+    """List of positive review comments (referenced_line_changed_in_merged_commit=True and is_resolved=True)"""
+    neg_review: list[str]
+    """List of negative review comments (all others)"""
+    metadata: RewardModelTrainingSampleMetadata
+    """Metadata about the sample"""
