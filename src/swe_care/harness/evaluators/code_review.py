@@ -1,4 +1,8 @@
 import difflib
+import nltk
+from nltk.translate.bleu_score import sentence_bleu
+from nltk.tokenize import word_tokenize
+from nltk.translate.bleu_score import SmoothingFunction
 import json
 import re
 from typing import Any
@@ -12,10 +16,10 @@ from swe_care.schema.evaluation import CodeReviewPrediction
 from swe_care.utils.llm_models.clients import BaseModelClient
 
 EVALUATION_PROMPT = """\
-Your task is to evaluate the quliaty of the code review. Below are the required fields of a standard code review:
+You are a code review evaluater. Your task is to evaluate the quality of the code review. You need to evaluate the code reviews based on the quality attributes of a standard code review, which are shown below:
 
-- Function: A brief description of the main purpose and implemented functionality of the patch.
-- Complexity: An evaluation of whether the patch is more complex than it should be. The evaluation should cover different granularities: line-level, function-level, class-level, and file-level, if applicable.
+- Functionality: An evaluation of whether the main purpose of the patch, its functionality, and any potential functional or security defects have been described.
+- Quality: An evaluation of the accuracy of code quality descriptions, including patch complexity (line-level, function-level, class-level, file-level), code readability, optimization status, and maintainability, etc.
 - Style: An evaluation of whether the patch follows the programming conventions of the original code, e.g. the naming of variables and functions.
 - Documentation: An evaluation of whether the patch provide clear and necessary comments, as well as documentation.
 
@@ -25,7 +29,7 @@ For each field, you should analyze:
 - Relevance: whether the review is targeted at the issue and the code patch.
 - Clarity: whether the review is clear and without redundant information.
 - Consistency: whether the review is logically consistent with the issue, code base, patch, and other fields in the review.
-- Language: whether the review uses professional language and contains no grammatical errors.
+- Language: whether the review uses professional language and contains no grammatical errors. Whether it facilitate the knowledge transfer, expresses in a kind way and provides positive feedback.
 
 Give a score between 0 and 1 (inclusive) to each of these five dimensions, and output your final evaluation in nested json format:
 ```
@@ -222,8 +226,21 @@ class RuleBasedEvaluator(Evaluator):
         elif pred_defect.line is None and ref_defect.line is None:
             line_score = 0.5  # Partial score when both don't specify line numbers
 
-        # Combine path and line scores
-        location_score = (path_score * 0.7) + (line_score * 0.3)
+
+        # diff_hunk similarity
+        def parse_header(header):
+            match = re.search(r"@@ -(\d+),?(\d+)? \+(\d+),?(\d+)? @@", header)
+            new_start = int(match.group(3))
+            new_lines = int(match.group(4)) if match.group(4) else 1  # process single line
+            return set(range(new_start, new_start + new_lines))
+
+        pred_hunk_lines = parse_header(pred_defect.diff_hunk) if pred_defect.diff_hunk else set()
+        ref_hunk_lines = parse_header(ref_defect.diff_hunk) if ref_defect.diff_hunk else set()
+        overlap = ref_hunk_lines & pred_hunk_lines
+        diff_hunk_score = len(overlap) / len(ref_hunk_lines)
+
+        # Combine path, diff hunk and line scores
+        location_score = (path_score * 0.7) + (line_score * 0.15) + (diff_hunk_score * 0.15)
         return min(1.0, max(0.0, location_score))
 
     def _calculate_description_similarity(
@@ -245,8 +262,14 @@ class RuleBasedEvaluator(Evaluator):
             return 0.0
 
         # Use difflib.SequenceMatcher for text similarity
-        similarity = difflib.SequenceMatcher(None, pred_text, ref_text).ratio()
-        return similarity
+        SequenceMatcher_similarity = difflib.SequenceMatcher(None, pred_text, ref_text).ratio()
+
+
+        # Use BLEU score for better handling of word order and synonyms
+        pred_tokens = word_tokenize(pred_text)
+        ref_tokens = word_tokenize(ref_text)
+        bleu_score = sentence_bleu([ref_tokens], pred_tokens, weights=(0.25, 0.25, 0.25, 0.25), smoothing_function=SmoothingFunction().method4)
+        return bleu_score
 
     def _find_best_matches(
         self,

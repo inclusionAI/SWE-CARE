@@ -276,3 +276,41 @@ class GitHubAPI:
                 return ""
 
         return self._retry_wrapper(_get_file_content)()
+
+    def get_files_content(self, repo: str, commit: str) -> dict[str, str]:
+        """Get the content of all files at a specific commit.
+
+        Args:
+            repo: Repository in format 'owner/repo'
+            commit: Commit SHA to fetch all the files from
+
+        Returns:
+            Dictionary mapping file paths to their content
+        
+        Raises:
+            requests.exceptions.RequestException: If the request fails
+        """
+        
+        def _get_files_content():
+            files_response = self.call_api(
+                f"repos/{repo}/git/trees/{commit}?recursive=1"
+            )
+            files_data = files_response.json()
+
+            if "tree" not in files_data:
+                logger.warning(f"No files found for commit {commit} in {repo}")
+                return {}
+
+            files_content = {}
+            for file_info in files_data["tree"]:
+                if file_info["type"] == "blob":
+                    file_path = file_info["path"]
+                    try:
+                        content = self.get_file_content(repo, commit, file_path)
+                        files_content[file_path] = content
+                    except Exception as e:
+                        logger.warning(f"Failed to fetch content for {file_path}: {e}")
+
+            return files_content
+
+        return self._retry_wrapper(_get_files_content)()

@@ -2,7 +2,7 @@
 Module for converting PR classification data to reward model training samples.
 """
 
-import json
+import json,ast
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 from typing import Literal, Optional
@@ -385,6 +385,60 @@ def convert_pr_to_samples(
 
         # Only create sample if we have both positive and negative reviews
         if pos_reviews and neg_reviews:
+            '''Unify all content in pos_review and neg_review except for review_comment:
+                1. Extract <code></code>, <path></path>, and <diff_hunk></diff_hunk> content from pos_review and neg_review respectively.
+                2. Perform a union operation on the three parts of content.
+                3. Reinsert the unioned content into each pos_review and neg_review.'''
+            code_content = set()
+            path_content = set()
+            diff_hunk_content = set()
+            line_content = set()
+            for pos_review in pos_reviews:
+                # Extract <code>, <path>, and <diff_hunk> content
+                code_content.add(
+                    pos_review.split("<code>")[1].split("</code>")[0]
+                )
+                path_content.add(
+                    pos_review.split("<path>")[1].split("</path>")[0].strip()
+                )
+                diff_hunk_content.add(
+                    pos_review.split("<diff_hunk>")[1].split("</diff_hunk>")[0].strip()
+                )
+                line_content.add(
+                    pos_review.split("<line>")[1].split("</line>")[0].strip()
+                )
+            for neg_review in neg_reviews:
+                # Extract <code>, <path>, and <diff_hunk> content
+                code_content.add(
+                    neg_review.split("<code>")[1].split("</code>")[0]
+                )
+                path_content.add(
+                    neg_review.split("<path>")[1].split("</path>")[0].strip()
+                )
+                diff_hunk_content.add(
+                    neg_review.split("<diff_hunk>")[1].split("</diff_hunk>")[0].strip()
+                )
+                line_content.add(
+                    neg_review.split("<line>")[1].split("</line>")[0].strip()
+                )
+            # Reinsert the unioned content into each pos_review and neg_review
+            pos_reviews = [
+                f"<code>{list(code_content)}</code>"
+                f"<diff_hunk>{list(diff_hunk_content)}</diff_hunk>"
+                f"<path>{list(path_content)}</path>"
+                f"<line>{list(line_content)}</line>"
+                f"<review_comment>{review.split('<review_comment>')[1].split('</review_comment>')[0]}</review_comment>"
+                for review in pos_reviews
+            ]
+            neg_reviews = [
+                f"<code>{list(code_content)}</code>"
+                f"<diff_hunk>{list(diff_hunk_content)}</diff_hunk>"
+                f"<path>{list(path_content)}</path>"
+                f"<line>{list(line_content)}</line>"
+                f"<review_comment>{review.split('<review_comment>')[1].split('</review_comment>')[0]}</review_comment>"
+                for review in neg_reviews
+            ]
+
             # Create metadata for this sample
             metadata = RewardModelTrainingSampleMetadata(
                 repo=repo,
@@ -502,3 +556,6 @@ def format_review_comment(
         prompt = f"<diff_hunk>\n{diff_hunk}\n</diff_hunk>\n<path>{path}</path>\n<line>{line}</line>\n<review_comment>\n{review_comment}\n</review_comment>"
 
     return prompt
+
+
+convert_to_rm_samples(graphql_prs_data_file=Path('results/graphql_prs_data/Significant-Gravitas__AutoGPT_graphql_prs_data.jsonl'),pr_classification_file=Path('results/classify_prs_data/Significant-Gravitas__AutoGPT_pr_classification.jsonl'),output_dir=Path("./results/rm_samples"),file_source='reviewed_file',tokens=['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'],jobs=1)

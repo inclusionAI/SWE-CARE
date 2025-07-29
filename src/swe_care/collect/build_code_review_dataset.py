@@ -22,7 +22,7 @@ from swe_care.schema.dataset import (
 from swe_care.utils.estimate import (
     estimate_difficulty,
     estimate_problem_domains,
-    estimate_review_effort,
+    classify_review_effort,
 )
 from swe_care.utils.extract_prs_data import (
     extract_hints,
@@ -222,9 +222,9 @@ def build_code_review_dataset_single_file(
 
                 # Create metadata
                 metadata = CodeReviewTaskMetadata(
-                    problem_domains=estimate_problem_domains(pr_data),
-                    difficulty=estimate_difficulty(pr_data),
-                    estimated_review_effort=estimate_review_effort(pr_data),
+                    problem_domains=estimate_problem_domains(pr_data, problem_statement),
+                    difficulty=estimate_difficulty(pr_data,head_commit_message_to_review,patch_to_review),
+                    estimated_review_effort=classify_review_effort(pr_data,head_commit_message_to_review,patch_to_review),
                 )
 
                 # Get language from the repo
@@ -428,3 +428,6 @@ def build_code_review_dataset(
 
     logger.info("All dataset building completed")
     logger.info(f"Final dataset saved to {output_file}")
+
+
+build_code_review_dataset(graphql_prs_data_file='results/graphql_prs_data/Significant-Gravitas__AutoGPT_graphql_prs_data.jsonl',pr_classification_file='results/classify_prs_data/Significant-Gravitas__AutoGPT_pr_classification.jsonl',output_dir="./results/dataset",tokens=['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'],jobs=1)

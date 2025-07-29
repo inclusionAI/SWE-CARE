@@ -918,3 +918,6 @@ def get_graphql_prs_data(
 
     else:
         raise ValueError("Either repo_file or repo must be specified")
+
+
+get_graphql_prs_data(repo="Significant-Gravitas/AutoGPT",output_dir="results/graphql_prs_data",tokens=["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"])
