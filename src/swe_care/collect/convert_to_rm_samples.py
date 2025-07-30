@@ -2,13 +2,19 @@
 Module for converting PR classification data to reward model training samples.
 """
 
-import json,ast
+import json
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 from typing import Literal, Optional
 
 from loguru import logger
 from tqdm import tqdm
+
+from rank_bm25 import BM25Okapi
+import nltk
+nltk.download('punkt_tab')
+from nltk.tokenize import word_tokenize
+import string
 
 from swe_care.schema.collect import (
     LabeledReviewComment,
@@ -19,6 +25,7 @@ from swe_care.schema.collect import (
 from swe_care.utils.extract_prs_data import (
     extract_problem_statement,
     fetch_repo_file_content,
+    fetch_repo_files_content_by_commit,
 )
 from swe_care.utils.patch import get_changed_file_paths
 
@@ -28,7 +35,7 @@ def convert_to_rm_samples(
     pr_classification_file: Path,
     output_dir: Path,
     tokens: Optional[list[str]] = None,
-    file_source: Literal["none", "base_changed_files", "reviewed_file"] = "none",
+    file_source: Literal["none", "base_changed_files", "reviewed_file","retrieved_base_changed_files", "retrieved_all_files"] = "none",
     jobs: int = 2,
 ) -> None:
     """
@@ -39,7 +46,7 @@ def convert_to_rm_samples(
         pr_classification_file: Path to PR classification file or directory containing *_pr_classification.jsonl files
         output_dir: Output directory for reward model samples
         tokens: Optional list of GitHub tokens for API requests
-        file_source: Source for file content ('none', 'base_changed_files', or 'reviewed_file')
+        file_source: Source for file content ('none', 'base_changed_files', 'reviewed_file', 'retrieved_base_changed_files', or 'retrieved_all_files')
         jobs: Number of parallel jobs
     """
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -179,7 +186,7 @@ def convert_to_rm_samples_single_file(
     pr_classification_file: Path,
     output_dir: Path,
     tokens: Optional[list[str]] = None,
-    file_source: Literal["none", "base_changed_files", "reviewed_file"] = "none",
+    file_source: Literal["none", "base_changed_files", "reviewed_file", "retrieved_base_changed_files", "retrieved_all_files"] = "none",
 ) -> None:
     """
     Convert PR classification data for a single file to reward model training samples.
@@ -189,7 +196,7 @@ def convert_to_rm_samples_single_file(
         pr_classification_file: Path to PR classification file
         output_dir: Output directory
         tokens: Optional list of GitHub tokens for API requests
-        file_source: Source for file content ('none', 'base_changed_files', or 'reviewed_file')
+        file_source: Source for file content ('none', 'base_changed_files', 'reviewed_file', 'retrieved_base_changed_files', or 'retrieved_all_files')
     """
     # Extract repo info from filename
     filename = pr_classification_file.stem
@@ -285,7 +292,7 @@ def convert_to_rm_samples_single_file(
 def convert_pr_to_samples(
     pr_data: dict,
     pr_classification: PRClassification,
-    file_source: Literal["none", "base_changed_files", "reviewed_file"] = "none",
+    file_source: Literal["none", "base_changed_files", "reviewed_file", "retrieved_base_changed_files", "retrieved_all_files"] = "none",
     repo: Optional[str] = None,
     tokens: Optional[list[str]] = None,
 ) -> list[RewardModelTrainingSample]:
@@ -295,7 +302,7 @@ def convert_pr_to_samples(
     Args:
         pr_data: GraphQL PR data containing closing issues and other PR information
         pr_classification: PR classification data
-        file_source: Source for file content ('none', 'base_changed_files', or 'reviewed_file')
+        file_source: Source for file content ('none', 'base_changed_files', 'reviewed_file', 'retrieved_base_changed_files', or 'retrieved_all_files')
         repo: Repository in format 'owner/name' (needed for file fetching when file_source is 'changed_files')
         tokens: Optional list of GitHub tokens for API requests
 
@@ -339,13 +346,15 @@ def convert_pr_to_samples(
         pos_reviews = []
         neg_reviews = []
 
-        if file_source == "base_changed_files":
+        if file_source == "base_changed_files" or "retrieved_base_changed_files":
             changed_files = get_changed_files(
                 repo=repo,
                 base_commit=base_commit,
                 patch_to_review=patch_to_review,
                 tokens=tokens,
             )
+        elif file_source == "retrieved_all_files":
+            changed_files = fetch_repo_files_content_by_commit(repo, base_commit, tokens)
         else:
             changed_files = {}
 
@@ -369,6 +378,31 @@ def convert_pr_to_samples(
                     comment_files[comment.path] = ""
             elif file_source == "base_changed_files":
                 comment_files = changed_files
+            elif "retrieved" in file_source:
+                # If file_source is 'retrieved_files', adopt BM25 to retrieve files that the reviewed file is similar to from the repo
+                def preprocess(text):
+                    # Convert text to lowercase, remove punctuation marks, and then segment words into tokens.
+                    text = text.lower()
+                    text = text.translate(str.maketrans('', '', string.punctuation))
+                    return word_tokenize(text)
+                try:
+                    retrieved_files = changed_files
+                    #Use BM25 or similar logic to filter files based on the diff_hunk
+                    query = comment.diff_hunk
+                    # Preprocess the query
+                    query_tokens = preprocess(query)
+                    # Use BM25 to rank files based on the query
+                    bm25 = BM25Okapi([preprocess(content) for content in retrieved_files.values()])
+                    doc_scores = bm25.get_scores(query_tokens)
+                    top_indices = sorted(range(len(doc_scores)), key=lambda i: doc_scores[i], reverse=True)[:min(5, len(retrieved_files))]
+                    file_paths = list(retrieved_files.keys())
+                    # Map the relevant file paths to their contents
+                    for idx in top_indices:
+                        file_path = file_paths[idx]
+                        comment_files[file_path] = retrieved_files[file_path]
+                except Exception as e:
+                    logger.warning(f"Failed to retrieved content for diff hunk: {e}")
+                    comment_files = {}
             else:
                 comment_files = {}
 
@@ -385,60 +419,6 @@ def convert_pr_to_samples(
 
         # Only create sample if we have both positive and negative reviews
         if pos_reviews and neg_reviews:
-            '''Unify all content in pos_review and neg_review except for review_comment:
-                1. Extract <code></code>, <path></path>, and <diff_hunk></diff_hunk> content from pos_review and neg_review respectively.
-                2. Perform a union operation on the three parts of content.
-                3. Reinsert the unioned content into each pos_review and neg_review.'''
-            code_content = set()
-            path_content = set()
-            diff_hunk_content = set()
-            line_content = set()
-            for pos_review in pos_reviews:
-                # Extract <code>, <path>, and <diff_hunk> content
-                code_content.add(
-                    pos_review.split("<code>")[1].split("</code>")[0]
-                )
-                path_content.add(
-                    pos_review.split("<path>")[1].split("</path>")[0].strip()
-                )
-                diff_hunk_content.add(
-                    pos_review.split("<diff_hunk>")[1].split("</diff_hunk>")[0].strip()
-                )
-                line_content.add(
-                    pos_review.split("<line>")[1].split("</line>")[0].strip()
-                )
-            for neg_review in neg_reviews:
-                # Extract <code>, <path>, and <diff_hunk> content
-                code_content.add(
-                    neg_review.split("<code>")[1].split("</code>")[0]
-                )
-                path_content.add(
-                    neg_review.split("<path>")[1].split("</path>")[0].strip()
-                )
-                diff_hunk_content.add(
-                    neg_review.split("<diff_hunk>")[1].split("</diff_hunk>")[0].strip()
-                )
-                line_content.add(
-                    neg_review.split("<line>")[1].split("</line>")[0].strip()
-                )
-            # Reinsert the unioned content into each pos_review and neg_review
-            pos_reviews = [
-                f"<code>{list(code_content)}</code>"
-                f"<diff_hunk>{list(diff_hunk_content)}</diff_hunk>"
-                f"<path>{list(path_content)}</path>"
-                f"<line>{list(line_content)}</line>"
-                f"<review_comment>{review.split('<review_comment>')[1].split('</review_comment>')[0]}</review_comment>"
-                for review in pos_reviews
-            ]
-            neg_reviews = [
-                f"<code>{list(code_content)}</code>"
-                f"<diff_hunk>{list(diff_hunk_content)}</diff_hunk>"
-                f"<path>{list(path_content)}</path>"
-                f"<line>{list(line_content)}</line>"
-                f"<review_comment>{review.split('<review_comment>')[1].split('</review_comment>')[0]}</review_comment>"
-                for review in neg_reviews
-            ]
-
             # Create metadata for this sample
             metadata = RewardModelTrainingSampleMetadata(
                 repo=repo,
@@ -558,4 +538,4 @@ def format_review_comment(
     return prompt
 
 
-convert_to_rm_samples(graphql_prs_data_file=Path('results/graphql_prs_data/Significant-Gravitas__AutoGPT_graphql_prs_data.jsonl'),pr_classification_file=Path('results/classify_prs_data/Significant-Gravitas__AutoGPT_pr_classification.jsonl'),output_dir=Path("./results/rm_samples"),file_source='reviewed_file',tokens=['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'],jobs=1)
+convert_to_rm_samples(graphql_prs_data_file=Path('results/graphql_prs_data/Significant-Gravitas__AutoGPT_graphql_prs_data.jsonl'),pr_classification_file=Path('results/classify_prs_data/Significant-Gravitas__AutoGPT_pr_classification.jsonl'),output_dir=Path("./results/rm_samples"),file_source='retrieved_all_files',tokens=['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'],jobs=1)
