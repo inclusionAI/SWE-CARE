@@ -25,7 +25,7 @@ from swe_care.schema.collect import (
 from swe_care.utils.extract_prs_data import (
     extract_problem_statement,
     fetch_repo_file_content,
-    fetch_repo_files_content_by_commit,
+    fetch_repo_files_content_by_retrieval,
 )
 from swe_care.utils.patch import get_changed_file_paths
 
@@ -346,15 +346,13 @@ def convert_pr_to_samples(
         pos_reviews = []
         neg_reviews = []
 
-        if file_source == "base_changed_files" or "retrieved_base_changed_files":
+        if file_source == "base_changed_files" or file_source == "retrieved_base_changed_files":
             changed_files = get_changed_files(
                 repo=repo,
                 base_commit=base_commit,
                 patch_to_review=patch_to_review,
                 tokens=tokens,
             )
-        elif file_source == "retrieved_all_files":
-            changed_files = fetch_repo_files_content_by_commit(repo, base_commit, tokens)
         else:
             changed_files = {}
 
@@ -378,7 +376,7 @@ def convert_pr_to_samples(
                     comment_files[comment.path] = ""
             elif file_source == "base_changed_files":
                 comment_files = changed_files
-            elif "retrieved" in file_source:
+            elif file_source == 'retrieved_base_changed_files':
                 # If file_source is 'retrieved_files', adopt BM25 to retrieve files that the reviewed file is similar to from the repo
                 def preprocess(text):
                     # Convert text to lowercase, remove punctuation marks, and then segment words into tokens.
@@ -402,6 +400,17 @@ def convert_pr_to_samples(
                         comment_files[file_path] = retrieved_files[file_path]
                 except Exception as e:
                     logger.warning(f"Failed to retrieved content for diff hunk: {e}")
+                    comment_files = {}
+            elif file_source == "retrieved_all_files":
+                if comment.diff_hunk:
+                    comment_files = fetch_repo_files_content_by_retrieval(
+                        repo=repo,
+                        commit=base_commit,
+                        query=comment.diff_hunk,
+                        tokens=tokens,
+                        max_files=5
+                    )
+                else:
                     comment_files = {}
             else:
                 comment_files = {}
