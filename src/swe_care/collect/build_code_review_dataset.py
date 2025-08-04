@@ -222,9 +222,15 @@ def build_code_review_dataset_single_file(
 
                 # Create metadata
                 metadata = CodeReviewTaskMetadata(
-                    problem_domains=estimate_problem_domains(pr_data, problem_statement),
-                    difficulty=estimate_difficulty(pr_data,head_commit_message_to_review,patch_to_review),
-                    estimated_review_effort=classify_review_effort(pr_data,head_commit_message_to_review,patch_to_review),
+                    problem_domains=estimate_problem_domains(
+                        pr_data, problem_statement
+                    ),
+                    difficulty=estimate_difficulty(
+                        pr_data, head_commit_message_to_review, patch_to_review
+                    ),
+                    estimated_review_effort=classify_review_effort(
+                        pr_data, head_commit_message_to_review, patch_to_review
+                    ),
                 )
 
                 # Get language from the repo
@@ -428,4 +434,3 @@ def build_code_review_dataset(
 
     logger.info("All dataset building completed")
     logger.info(f"Final dataset saved to {output_file}")
-

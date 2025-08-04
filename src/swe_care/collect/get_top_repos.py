@@ -92,4 +92,6 @@ def get_top_repos(
     )
 
 
-get_top_repos("Python",100,"results/top_repos",["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"])
+get_top_repos(
+    "Python", 100, "results/top_repos", ["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"]
+)

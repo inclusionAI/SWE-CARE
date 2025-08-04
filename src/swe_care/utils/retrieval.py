@@ -1,25 +1,26 @@
-import json
-import os
 import ast
-import jedi
-import shutil
-import traceback
-import subprocess
-from filelock import FileLock
-from typing import Any
-from datasets import load_from_disk, load_dataset
-from pyserini.search.lucene import LuceneSearcher
-from git import Repo
-from pathlib import Path
-from tqdm.auto import tqdm
-from argparse import ArgumentParser
-import re
-# from swebench.inference.make_datasets.utils import list_files, string_to_bool
+import json
 
+# from swebench.inference.make_datasets.utils import list_files, string_to_bool
 import logging
+import os
+import re
+import shutil
+import subprocess
+import traceback
+from pathlib import Path
+from typing import Any
+
+import jedi
+from datasets import load_dataset, load_from_disk
+from filelock import FileLock
+from git import Repo
+from pyserini.search.lucene import LuceneSearcher
+from tqdm.auto import tqdm
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 logger = logging.getLogger(__name__)
+
 
 class ContextManager:
     """
@@ -69,8 +70,9 @@ class ContextManager:
     def __exit__(self, exc_type, exc_val, exc_tb):
         pass
 
+
 def file_name_and_contents(filename, relative_path):
-    '''Returns the contents of a file along with its relative path.'''
+    """Returns the contents of a file along with its relative path."""
     text = relative_path + "\n"
     with open(filename) as f:
         text += f.read()
@@ -78,7 +80,7 @@ def file_name_and_contents(filename, relative_path):
 
 
 def file_name_and_documentation(filename, relative_path):
-    '''Returns the structural documentation of a Python file along with its relative path.'''
+    """Returns the structural documentation of a Python file along with its relative path."""
     text = relative_path + "\n"
     try:
         with open(filename) as f:
@@ -102,7 +104,7 @@ def file_name_and_documentation(filename, relative_path):
 
 
 def file_name_and_docs_jedi(filename, relative_path):
-    '''Returns the documentation of a Python file using Jedi along with its relative path.'''
+    """Returns the documentation of a Python file using Jedi along with its relative path."""
     text = relative_path + "\n"
     with open(filename) as f:
         source_code = f.read()
@@ -113,7 +115,7 @@ def file_name_and_docs_jedi(filename, relative_path):
         text += f"{module.full_name}\n"
         if docstring:
             text += f"{docstring}\n\n"
-        abspath = Path(filename).absolute()
+        # abspath = Path(filename).absolute()
         names = [
             name
             for name in script.get_names(
@@ -134,7 +136,7 @@ def file_name_and_docs_jedi(filename, relative_path):
                 docstring = name.docstring()
                 if docstring:
                     text += f"{docstring}\n\n"
-            except:
+            except Exception:
                 continue
     except Exception as e:
         logger.error(e)
@@ -143,27 +145,31 @@ def file_name_and_docs_jedi(filename, relative_path):
         return text
     return text
 
+
 DOCUMENT_ENCODING_FUNCTIONS = {
     "file_name_and_contents": file_name_and_contents,
     "file_name_and_documentation": file_name_and_documentation,
     "file_name_and_docs_jedi": file_name_and_docs_jedi,
 }
 
+
 def is_test(name, test_phrases=None):
-    '''Checks if a given filename or path indicates a test file.'''
+    """Checks if a given filename or path indicates a test file."""
     if test_phrases is None:
         test_phrases = ["test", "tests", "testing"]
     words = set(re.split(r" |_|\/|\.", name.lower()))
     return any(word in words for word in test_phrases)
 
+
 def list_files(root_dir, include_tests=False):
-    '''Lists all Python files in a directory, optionally excluding test files.'''
+    """Lists all Python files in a directory, optionally excluding test files."""
     files = []
     for filename in Path(root_dir).rglob("*.py"):
         if not include_tests and is_test(filename.as_posix()):
             continue
         files.append(filename.relative_to(root_dir).as_posix())
     return files
+
 
 def clone_repo(repo, root_dir, token):
     """
@@ -185,6 +191,7 @@ def clone_repo(repo, root_dir, token):
         Repo.clone_from(repo_url, repo_dir)
     return repo_dir
 
+
 def build_documents(repo_dir, commit, document_encoding_func):
     """
     Builds a dictionary of documents from a given repository directory and commit.
@@ -199,7 +206,9 @@ def build_documents(repo_dir, commit, document_encoding_func):
     """
     documents = dict()
     with ContextManager(repo_dir, commit):
-        filenames = list_files(repo_dir, include_tests=False) # Extract all Python files, optionally excluding tests
+        filenames = list_files(
+            repo_dir, include_tests=False
+        )  # Extract all Python files, optionally excluding tests
         logger.info(f"Found {len(filenames)} files in {repo_dir} at commit {commit}")
         for relative_path in filenames:
             filename = os.path.join(repo_dir, relative_path)
@@ -287,6 +296,7 @@ def make_index(
         )
     return index_path
 
+
 def get_remaining_instances(instances, output_file):
     """
     Filters a list of instances to exclude those that have already been processed and saved in a file.
@@ -318,6 +328,7 @@ def get_remaining_instances(instances, output_file):
         if instance_id not in instance_ids:
             remaining_instances.append(instance)
     return remaining_instances
+
 
 def search(instance, index_path):
     """
@@ -357,7 +368,8 @@ def search(instance, index_path):
         logger.error(f"Failed to process {instance_id}")
         logger.error(traceback.format_exc())
         return None
-    
+
+
 def search_indexes(remaining_instance, output_file, all_index_paths):
     """
     Searches the indexes for the given instances and writes the results to the output file.
@@ -379,9 +391,9 @@ def search_indexes(remaining_instance, output_file, all_index_paths):
             with open(output_file, "a") as out_file:
                 print(json.dumps(results), file=out_file, flush=True)
 
+
 def get_missing_ids(instances, output_file):
-    """ Checks which instance IDs from the given instances are missing in the output file.
-    """
+    """Checks which instance IDs from the given instances are missing in the output file."""
     with open(output_file) as f:
         written_ids = set()
         for line in f:
@@ -422,7 +434,7 @@ def get_index_paths_worker(
             python=python,
             instance_id=instance_id,
         )
-    except:
+    except Exception:
         logger.error(f"Failed to process {repo}/{commit} (instance {instance_id})")
         logger.error(traceback.format_exc())
     return instance_id, index_path
@@ -481,6 +493,7 @@ def get_root_dir(dataset_name, output_dir, document_encoding_style):
         root_dir.mkdir(parents=True, exist_ok=True)
     root_dir_name = root_dir
     return root_dir, root_dir_name
+
 
 def main(
     dataset_name_or_path,
@@ -565,4 +578,4 @@ def main(
 #      shard_id=None,
 #      num_shards=1,
 #      splits=['test'],
-#      leave_indexes=False)   
+#      leave_indexes=False)

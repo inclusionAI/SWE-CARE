@@ -1,11 +1,9 @@
-import difflib
-import nltk
-from nltk.translate.bleu_score import sentence_bleu
-from nltk.tokenize import word_tokenize
-from nltk.translate.bleu_score import SmoothingFunction
 import json
 import re
 from typing import Any
+
+from nltk.tokenize import word_tokenize
+from nltk.translate.bleu_score import SmoothingFunction, sentence_bleu
 
 from swe_care.harness.evaluators import Evaluator
 from swe_care.schema.dataset import (
@@ -226,21 +224,28 @@ class RuleBasedEvaluator(Evaluator):
         elif pred_defect.line is None and ref_defect.line is None:
             line_score = 0.5  # Partial score when both don't specify line numbers
 
-
         # diff_hunk similarity
         def parse_header(header):
             match = re.search(r"@@ -(\d+),?(\d+)? \+(\d+),?(\d+)? @@", header)
             new_start = int(match.group(3))
-            new_lines = int(match.group(4)) if match.group(4) else 1  # process single line
+            new_lines = (
+                int(match.group(4)) if match.group(4) else 1
+            )  # process single line
             return set(range(new_start, new_start + new_lines))
 
-        pred_hunk_lines = parse_header(pred_defect.diff_hunk) if pred_defect.diff_hunk else set()
-        ref_hunk_lines = parse_header(ref_defect.diff_hunk) if ref_defect.diff_hunk else set()
+        pred_hunk_lines = (
+            parse_header(pred_defect.diff_hunk) if pred_defect.diff_hunk else set()
+        )
+        ref_hunk_lines = (
+            parse_header(ref_defect.diff_hunk) if ref_defect.diff_hunk else set()
+        )
         overlap = ref_hunk_lines & pred_hunk_lines
         diff_hunk_score = len(overlap) / len(ref_hunk_lines)
 
         # Combine path, diff hunk and line scores
-        location_score = (path_score * 0.7) + (line_score * 0.15) + (diff_hunk_score * 0.15)
+        location_score = (
+            (path_score * 0.7) + (line_score * 0.15) + (diff_hunk_score * 0.15)
+        )
         return min(1.0, max(0.0, location_score))
 
     def _calculate_description_similarity(
@@ -262,13 +267,19 @@ class RuleBasedEvaluator(Evaluator):
             return 0.0
 
         # Use difflib.SequenceMatcher for text similarity
-        SequenceMatcher_similarity = difflib.SequenceMatcher(None, pred_text, ref_text).ratio()
-
+        # SequenceMatcher_similarity = difflib.SequenceMatcher(
+        #     None, pred_text, ref_text
+        # ).ratio()
 
         # Use BLEU score for better handling of word order and synonyms
         pred_tokens = word_tokenize(pred_text)
         ref_tokens = word_tokenize(ref_text)
-        bleu_score = sentence_bleu([ref_tokens], pred_tokens, weights=(0.25, 0.25, 0.25, 0.25), smoothing_function=SmoothingFunction().method4)
+        bleu_score = sentence_bleu(
+            [ref_tokens],
+            pred_tokens,
+            weights=(0.25, 0.25, 0.25, 0.25),
+            smoothing_function=SmoothingFunction().method4,
+        )
         return bleu_score
 
     def _find_best_matches(

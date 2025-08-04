@@ -918,5 +918,3 @@ def get_graphql_prs_data(
 
     else:
         raise ValueError("Either repo_file or repo must be specified")
-
-

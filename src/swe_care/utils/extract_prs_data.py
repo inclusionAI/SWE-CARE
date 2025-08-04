@@ -1,25 +1,23 @@
+import os
 import re
+import subprocess
 from collections import defaultdict
 from datetime import datetime
 from functools import lru_cache, wraps
 from typing import Any, Optional
-import os
+
 from loguru import logger
 
 from swe_care.schema.collect import LabeledReviewComment, ReviewCommentLabels
 from swe_care.utils.github import GitHubAPI
 from swe_care.utils.patch import is_line_changed_in_patch
-
 from swe_care.utils.retrieval import (
+    DOCUMENT_ENCODING_FUNCTIONS,
+    clone_repo,
     make_index,
     search,
-    clone_repo,
-    DOCUMENT_ENCODING_FUNCTIONS,
 )
-import shutil
-from pyserini.search.lucene import LuceneSearcher
-import subprocess
-import tempfile
+
 
 def cached_with_tuple_conversion(func):
     """Decorator that converts list arguments to tuples for lru_cache compatibility."""
@@ -600,15 +598,12 @@ def fetch_repo_file_content(
     return github_api.get_file_content(repo, commit, file_path)
 
 
-def fetch_local_file_content(
-    repo_dir: str,
-    file_path: str
-) -> str:
+def fetch_local_file_content(repo_dir: str, file_path: str) -> str:
     """Fetch the content of a file from a local repository directory."""
     try:
         full_path = os.path.join(repo_dir, file_path)
         if os.path.exists(full_path):
-            with open(full_path, 'r', encoding='utf-8', errors='ignore') as f:
+            with open(full_path, "r", encoding="utf-8", errors="ignore") as f:
                 return f.read()
         else:
             logger.warning(f"File not found in local repo: {file_path}")
@@ -617,13 +612,14 @@ def fetch_local_file_content(
         logger.error(f"Failed to read local file {file_path}: {e}")
         return ""
 
+
 @cached_with_tuple_conversion
 def fetch_repo_files_content_by_retrieval(
     repo: str,
     commit: str,
-    query: str, # e.g., "diff_hunk" or "file_path" or "problem_statement"
+    query: str,  # e.g., "diff_hunk" or "file_path" or "problem_statement"
     tokens: Optional[list[str]] = None,
-    max_files: int = 5
+    max_files: int = 5,
 ) -> dict[str, str]:
     """Get the content of specific files from a repository at a specific commit using retrieval."""
     try:
@@ -634,30 +630,27 @@ def fetch_repo_files_content_by_retrieval(
             # temp_dir = tempfile.mkdtemp(dir=temp_repo_dir)
             repo_dir = clone_repo(repo, temp_repo_dir, tokens[0] if tokens else "git")
 
-
-
         # Constrct the index
         python = subprocess.run("which python", shell=True, capture_output=True)
         python = python.stdout.decode("utf-8").strip()
-            
+
         index_path = make_index(
             repo_dir=repo_dir,
             root_dir=temp_repo_dir,
             query="",  # Empty query to index all files
             commit=commit,
-            document_encoding_func=DOCUMENT_ENCODING_FUNCTIONS["file_name_and_contents"],
+            document_encoding_func=DOCUMENT_ENCODING_FUNCTIONS[
+                "file_name_and_contents"
+            ],
             python=python,
-            instance_id=f"{repo.replace('/', '__')}_{commit[:8]}"
-            )
-        
+            instance_id=f"{repo.replace('/', '__')}_{commit[:8]}",
+        )
+
         # Create searcher and perform search
-        searcher = LuceneSearcher(index_path.as_posix())
+        # searcher = LuceneSearcher(index_path.as_posix())
 
         # Create search instance using retrieval_target as query
-        instance = {
-            "instance_id": f"{repo}_{commit[:8]}",
-            "query": query
-        }
+        instance = {"instance_id": f"{repo}_{commit[:8]}", "query": query}
 
         # Execute search
         results = search(instance, index_path)
@@ -667,23 +660,32 @@ def fetch_repo_files_content_by_retrieval(
         if results and results.get("hits"):
             # specific commit
             from swe_care.utils.retrieval import ContextManager
+
             with ContextManager(repo_dir, commit):
                 for hit in results["hits"][:max_files]:
                     file_path = hit["docid"]
                     try:
                         # Get file content from the repository at the specified commit
-                        content = fetch_repo_file_content(repo, commit, file_path, tokens)
+                        content = fetch_repo_file_content(
+                            repo, commit, file_path, tokens
+                        )
                         retrieved_files[file_path] = content
-                        logger.debug(f"Retrieved file: {file_path} (score: {hit['score']:.3f})")
+                        logger.debug(
+                            f"Retrieved file: {file_path} (score: {hit['score']:.3f})"
+                        )
                     except Exception as e:
-                        logger.warning(f"Failed to fetch content for retrieved file {file_path}: {e}")
-        
+                        logger.warning(
+                            f"Failed to fetch content for retrieved file {file_path}: {e}"
+                        )
+
         # Clean up temporary directory
         # shutil.rmtree(temp_dir, ignore_errors=True)
-        
-        logger.info(f"Retrieved {len(retrieved_files)} files using retrieval for {repo}@{commit[:8]}")
+
+        logger.info(
+            f"Retrieved {len(retrieved_files)} files using retrieval for {repo}@{commit[:8]}"
+        )
         return retrieved_files
-    
+
     except Exception as e:
         logger.error(f"Failed to retrieve files using search for {repo}@{commit}: {e}")
         # Clean up on error
