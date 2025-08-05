@@ -1,7 +1,10 @@
-import difflib
 import json
 import re
 from typing import Any
+
+from nltk.tokenize import word_tokenize
+from nltk.translate.bleu_score import SmoothingFunction, sentence_bleu
+from unidiff import PatchSet
 
 from swe_care.harness.evaluators import Evaluator
 from swe_care.schema.dataset import (
@@ -12,10 +15,10 @@ from swe_care.schema.evaluation import CodeReviewPrediction
 from swe_care.utils.llm_models.clients import BaseModelClient
 
 EVALUATION_PROMPT = """\
-Your task is to evaluate the quliaty of the code review. Below are the required fields of a standard code review:
+You are a code review evaluater. Your task is to evaluate the quality of the code review. You need to evaluate the code reviews based on the quality attributes of a standard code review, which are shown below:
 
-- Function: A brief description of the main purpose and implemented functionality of the patch.
-- Complexity: An evaluation of whether the patch is more complex than it should be. The evaluation should cover different granularities: line-level, function-level, class-level, and file-level, if applicable.
+- Functionality: An evaluation of whether the main purpose of the patch, its functionality, and any potential functional or security defects have been described.
+- Quality: An evaluation of the accuracy of code quality descriptions, including patch complexity (line-level, function-level, class-level, file-level), code readability, optimization status, and maintainability, etc.
 - Style: An evaluation of whether the patch follows the programming conventions of the original code, e.g. the naming of variables and functions.
 - Documentation: An evaluation of whether the patch provide clear and necessary comments, as well as documentation.
 
@@ -25,13 +28,13 @@ For each field, you should analyze:
 - Relevance: whether the review is targeted at the issue and the code patch.
 - Clarity: whether the review is clear and without redundant information.
 - Consistency: whether the review is logically consistent with the issue, code base, patch, and other fields in the review.
-- Language: whether the review uses professional language and contains no grammatical errors.
+- Language: whether the review uses professional language and contains no grammatical errors. Whether it facilitate the knowledge transfer, expresses in a kind way and provides positive feedback.
 
 Give a score between 0 and 1 (inclusive) to each of these five dimensions, and output your final evaluation in nested json format:
 ```
 {
     "function": {"correctness": score, "relevance": score, "clarity": score, "consistency": score, "language": score},
-    "complexity": {"correctness": score, "relevance": score, "clarity": score, "consistency": score, "language": score},
+    "quality": {"correctness": score, "relevance": score, "clarity": score, "consistency": score, "language": score},
     "style": {"correctness": score, "relevance": score, "clarity": score, "consistency": score, "language": score},
     "documentation": {"correctness": score, "relevance": score, "clarity": score, "consistency": score, "language": score}
 }
@@ -143,8 +146,27 @@ class RuleBasedEvaluator(Evaluator):
         """Whether this evaluator requires an input."""
         return False
 
+    def _parse_diff_hunks(diff_text):
+        patch = PatchSet(diff_text)
+        results = []
+
+        for patched_file in patch:
+            old_path = patched_file.path  # 可用 .source_file, .target_file 获取完整路径
+            for hunk in patched_file:
+                hunk_info = {
+                    "file": old_path,
+                    "old_start": hunk.source_start,
+                    "old_lines": hunk.source_length,
+                    "old_end": hunk.source_start + hunk.source_length - 1,
+                    "new_start": hunk.target_start,
+                    "new_lines": hunk.target_length,
+                    "new_end": hunk.target_start + hunk.target_length - 1,
+                }
+                results.append(hunk_info)
+        return results
+
     def extract_defects_from_review(
-        self, review_text: str
+        self, review_text: str, input: CodeReviewTaskInstance
     ) -> list[ReferenceReviewComment]:
         """Extract defects from review text that follows the REVIEW_PROMPT format.
 
@@ -172,11 +194,22 @@ class RuleBasedEvaluator(Evaluator):
                 file_path = file_path_match.group(1).strip()
                 line_num = int(line_match.group(1)) if line_match else None
                 suggestion = suggestion_match.group(1).strip()
-
+                # Extract diff hunk based on patch_to_review, file path line number
+                # if the line number falls within a hunk, use that hunk,
+                patch = input.commit_to_review.patch_to_review if input else None
+                diff_hunks = self._parse_diff_hunks(patch) if patch else []
+                diff_hunk = None
+                for hunk in diff_hunks:
+                    if (
+                        hunk["file"] == file_path
+                        and hunk["new_start"] <= line_num <= hunk["new_end"]
+                    ):
+                        diff_hunk = f"@@ -{hunk['old_start']},{hunk['old_lines']} +{hunk['new_start']},{hunk['new_lines']} @@\n"
+                        break
                 defect = ReferenceReviewComment(
                     text=suggestion,
                     path=file_path,
-                    diff_hunk=None,
+                    diff_hunk=diff_hunk,
                     line=line_num,
                     start_line=None,
                     original_line=None,
@@ -222,8 +255,33 @@ class RuleBasedEvaluator(Evaluator):
         elif pred_defect.line is None and ref_defect.line is None:
             line_score = 0.5  # Partial score when both don't specify line numbers
 
-        # Combine path and line scores
-        location_score = (path_score * 0.7) + (line_score * 0.3)
+        # diff_hunk similarity
+        def parse_header(header):
+            match = re.search(r"@@ -(\d+),?(\d+)? \+(\d+),?(\d+)? @@", header)
+            new_start = int(match.group(3))
+            new_lines = (
+                int(match.group(4)) if match.group(4) else 1
+            )  # process single line
+            return set(range(new_start, new_start + new_lines))
+
+        if pred_defect.diff_hunk:
+            pred_hunk_lines = (
+                parse_header(pred_defect.diff_hunk) if pred_defect.diff_hunk else set()
+            )
+        else:
+            # if diff hunk does not exist, create a diff hunk for the five lines above and below the line number.
+            pred_hunk_lines = set(range(pred_defect.line - 5, pred_defect.line + 5))
+
+        ref_hunk_lines = (
+            parse_header(ref_defect.diff_hunk) if ref_defect.diff_hunk else set()
+        )
+        overlap = ref_hunk_lines & pred_hunk_lines
+        diff_hunk_score = len(overlap) / len(ref_hunk_lines)
+
+        # Combine path, diff hunk and line scores
+        location_score = (
+            (path_score * 0.7) + (line_score * 0.15) + (diff_hunk_score * 0.15)
+        )
         return min(1.0, max(0.0, location_score))
 
     def _calculate_description_similarity(
@@ -245,8 +303,20 @@ class RuleBasedEvaluator(Evaluator):
             return 0.0
 
         # Use difflib.SequenceMatcher for text similarity
-        similarity = difflib.SequenceMatcher(None, pred_text, ref_text).ratio()
-        return similarity
+        # SequenceMatcher_similarity = difflib.SequenceMatcher(
+        #     None, pred_text, ref_text
+        # ).ratio()
+
+        # Use BLEU score for better handling of word order and synonyms
+        pred_tokens = word_tokenize(pred_text)
+        ref_tokens = word_tokenize(ref_text)
+        bleu_score = sentence_bleu(
+            [ref_tokens],
+            pred_tokens,
+            weights=(0.25, 0.25, 0.25, 0.25),
+            smoothing_function=SmoothingFunction().method4,
+        )
+        return bleu_score
 
     def _find_best_matches(
         self,
@@ -339,7 +409,9 @@ class RuleBasedEvaluator(Evaluator):
             Dictionary containing evaluation metrics
         """
         # Extract predicted defects from review text
-        predicted_defects = self.extract_defects_from_review(prediction.review_text)
+        predicted_defects = self.extract_defects_from_review(
+            prediction.review_text, input
+        )
 
         if not predicted_defects and not reference:
             # Both empty - perfect match

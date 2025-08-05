@@ -3,11 +3,15 @@ Module for converting PR classification data to reward model training samples.
 """
 
 import json
+import string
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 from typing import Literal, Optional
 
+import nltk
 from loguru import logger
+from nltk.tokenize import word_tokenize
+from rank_bm25 import BM25Okapi
 from tqdm import tqdm
 
 from swe_care.schema.collect import (
@@ -19,8 +23,11 @@ from swe_care.schema.collect import (
 from swe_care.utils.extract_prs_data import (
     extract_problem_statement,
     fetch_repo_file_content,
+    fetch_repo_files_content_by_retrieval,
 )
 from swe_care.utils.patch import get_changed_file_paths
+
+nltk.download("punkt_tab")
 
 
 def convert_to_rm_samples(
@@ -28,7 +35,13 @@ def convert_to_rm_samples(
     pr_classification_file: Path,
     output_dir: Path,
     tokens: Optional[list[str]] = None,
-    file_source: Literal["none", "base_changed_files", "reviewed_file"] = "none",
+    file_source: Literal[
+        "none",
+        "base_changed_files",
+        "reviewed_file",
+        "retrieved_base_changed_files",
+        "retrieved_all_files",
+    ] = "none",
     jobs: int = 2,
 ) -> None:
     """
@@ -39,7 +52,7 @@ def convert_to_rm_samples(
         pr_classification_file: Path to PR classification file or directory containing *_pr_classification.jsonl files
         output_dir: Output directory for reward model samples
         tokens: Optional list of GitHub tokens for API requests
-        file_source: Source for file content ('none', 'base_changed_files', or 'reviewed_file')
+        file_source: Source for file content ('none', 'base_changed_files', 'reviewed_file', 'retrieved_base_changed_files', or 'retrieved_all_files')
         jobs: Number of parallel jobs
     """
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -179,7 +192,13 @@ def convert_to_rm_samples_single_file(
     pr_classification_file: Path,
     output_dir: Path,
     tokens: Optional[list[str]] = None,
-    file_source: Literal["none", "base_changed_files", "reviewed_file"] = "none",
+    file_source: Literal[
+        "none",
+        "base_changed_files",
+        "reviewed_file",
+        "retrieved_base_changed_files",
+        "retrieved_all_files",
+    ] = "none",
 ) -> None:
     """
     Convert PR classification data for a single file to reward model training samples.
@@ -189,7 +208,7 @@ def convert_to_rm_samples_single_file(
         pr_classification_file: Path to PR classification file
         output_dir: Output directory
         tokens: Optional list of GitHub tokens for API requests
-        file_source: Source for file content ('none', 'base_changed_files', or 'reviewed_file')
+        file_source: Source for file content ('none', 'base_changed_files', 'reviewed_file', 'retrieved_base_changed_files', or 'retrieved_all_files')
     """
     # Extract repo info from filename
     filename = pr_classification_file.stem
@@ -285,7 +304,13 @@ def convert_to_rm_samples_single_file(
 def convert_pr_to_samples(
     pr_data: dict,
     pr_classification: PRClassification,
-    file_source: Literal["none", "base_changed_files", "reviewed_file"] = "none",
+    file_source: Literal[
+        "none",
+        "base_changed_files",
+        "reviewed_file",
+        "retrieved_base_changed_files",
+        "retrieved_all_files",
+    ] = "none",
     repo: Optional[str] = None,
     tokens: Optional[list[str]] = None,
 ) -> list[RewardModelTrainingSample]:
@@ -295,7 +320,7 @@ def convert_pr_to_samples(
     Args:
         pr_data: GraphQL PR data containing closing issues and other PR information
         pr_classification: PR classification data
-        file_source: Source for file content ('none', 'base_changed_files', or 'reviewed_file')
+        file_source: Source for file content ('none', 'base_changed_files', 'reviewed_file', 'retrieved_base_changed_files', or 'retrieved_all_files')
         repo: Repository in format 'owner/name' (needed for file fetching when file_source is 'changed_files')
         tokens: Optional list of GitHub tokens for API requests
 
@@ -339,7 +364,10 @@ def convert_pr_to_samples(
         pos_reviews = []
         neg_reviews = []
 
-        if file_source == "base_changed_files":
+        if (
+            file_source == "base_changed_files"
+            or file_source == "retrieved_base_changed_files"
+        ):
             changed_files = get_changed_files(
                 repo=repo,
                 base_commit=base_commit,
@@ -369,6 +397,49 @@ def convert_pr_to_samples(
                     comment_files[comment.path] = ""
             elif file_source == "base_changed_files":
                 comment_files = changed_files
+            elif file_source == "retrieved_base_changed_files":
+                # If file_source is 'retrieved_files', adopt BM25 to retrieve files that the reviewed file is similar to from the repo
+                def preprocess(text):
+                    # Convert text to lowercase, remove punctuation marks, and then segment words into tokens.
+                    text = text.lower()
+                    text = text.translate(str.maketrans("", "", string.punctuation))
+                    return word_tokenize(text)
+
+                try:
+                    retrieved_files = changed_files
+                    # Use BM25 or similar logic to filter files based on the diff_hunk
+                    query = comment.diff_hunk
+                    # Preprocess the query
+                    query_tokens = preprocess(query)
+                    # Use BM25 to rank files based on the query
+                    bm25 = BM25Okapi(
+                        [preprocess(content) for content in retrieved_files.values()]
+                    )
+                    doc_scores = bm25.get_scores(query_tokens)
+                    top_indices = sorted(
+                        range(len(doc_scores)),
+                        key=lambda i: doc_scores[i],
+                        reverse=True,
+                    )[: min(5, len(retrieved_files))]
+                    file_paths = list(retrieved_files.keys())
+                    # Map the relevant file paths to their contents
+                    for idx in top_indices:
+                        file_path = file_paths[idx]
+                        comment_files[file_path] = retrieved_files[file_path]
+                except Exception as e:
+                    logger.warning(f"Failed to retrieved content for diff hunk: {e}")
+                    comment_files = {}
+            elif file_source == "retrieved_all_files":
+                if comment.diff_hunk:
+                    comment_files = fetch_repo_files_content_by_retrieval(
+                        repo=repo,
+                        commit=base_commit,
+                        query=comment.diff_hunk,
+                        tokens=tokens,
+                        max_files=5,
+                    )
+                else:
+                    comment_files = {}
             else:
                 comment_files = {}
 

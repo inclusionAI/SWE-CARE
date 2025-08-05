@@ -22,7 +22,7 @@ from swe_care.schema.dataset import (
 from swe_care.utils.estimate import (
     estimate_difficulty,
     estimate_problem_domains,
-    estimate_review_effort,
+    classify_review_effort,
 )
 from swe_care.utils.extract_prs_data import (
     extract_hints,
@@ -222,9 +222,15 @@ def build_code_review_dataset_single_file(
 
                 # Create metadata
                 metadata = CodeReviewTaskMetadata(
-                    problem_domains=estimate_problem_domains(pr_data),
-                    difficulty=estimate_difficulty(pr_data),
-                    estimated_review_effort=estimate_review_effort(pr_data),
+                    problem_domains=estimate_problem_domains(
+                        pr_data, problem_statement
+                    ),
+                    difficulty=estimate_difficulty(
+                        pr_data, head_commit_message_to_review, patch_to_review
+                    ),
+                    estimated_review_effort=classify_review_effort(
+                        pr_data, head_commit_message_to_review, patch_to_review
+                    ),
                 )
 
                 # Get language from the repo
