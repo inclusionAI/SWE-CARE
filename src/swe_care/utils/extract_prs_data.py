@@ -49,7 +49,7 @@ def cached_with_tuple_conversion(func):
 
 
 def extract_problem_statement(closing_issues: list[dict[str, Any]]) -> str:
-    """Extract problem statement from closing issues.把多个issue的标题和内容拼接起来作为问题描述。"""
+    """Extract problem statement from closing issues."""
     if not closing_issues:
         return ""
 
@@ -239,7 +239,7 @@ def _extract_thread_comments_data(
     review_threads = pr_data.get("reviewThreads", {}).get("nodes", [])
     thread_id_to_metadata = {thread.get("id"): thread for thread in review_threads}
 
-    # Collect IDs of comments in threads 收集每个个会话下的comment id
+    # Collect IDs of comments in threads
     review_threads_with_comment_ids = defaultdict(list)
     for thread in review_threads:
         thread_comments = thread.get("comments", {}).get("nodes", [])
@@ -248,7 +248,7 @@ def _extract_thread_comments_data(
             if comment_id:
                 review_threads_with_comment_ids[thread.get("id")].append(comment_id)
 
-    # Get all review comments from all reviews 把comment的具体内容都匹配到每个comment id里
+    # Get all review comments from all reviews
     reviews = pr_data.get("reviews", {}).get("nodes", [])
     comment_id_to_comment = {}
 
@@ -259,7 +259,7 @@ def _extract_thread_comments_data(
             if comment_id:
                 comment_id_to_comment[comment_id] = comment
 
-    # Group comments by thread for review threads with matching commit 把每个会话下的comment从id变成具体信息，同时把对话也关联到对应的commit，如果会话内的comment不是评论commit的，就不拿进来
+    # Group comments by thread for review threads with matching commit
     thread_comments_data = {}
 
     for thread_id, comment_ids in review_threads_with_comment_ids.items():
@@ -292,7 +292,7 @@ def _should_include_comment_for_commit(
     commits: list[dict[str, Any]],
 ) -> bool:
     """
-    Determine if a review comment should be included for a specific commit. 判断是否把一个comment关联到具体的commit
+    Determine if a review comment should be included for a specific commit.
 
     This function handles the complex scenario where GitHub's originalCommit
     becomes orphaned due to commit history rewriting (force pushes, amends, etc.).
@@ -328,7 +328,7 @@ def _should_include_comment_for_commit(
         return True
 
     # Strategy 2: Handle orphaned originalCommit with temporal matching
-    # If originalCommit is not in PR commits, use temporal logic 如果某条审查评论在原来关联的提交消失了，但是在提交 A 后、提交 B 前创建的，那么它应当与 提交 A 关联。
+    # If originalCommit is not in PR commits, use temporal logic
     if original_commit_oid and original_commit_oid not in pr_commit_oids:
         try:
             comment_created_str = comment.get("createdAt", "")
@@ -425,7 +425,7 @@ def extract_labeled_review_comments_by_commit(
         if commit.get("oid"):
             pr_commit_oids.add(commit.get("oid"))
 
-    # Extract thread comments data using helper function 提取会话下的所有评论
+    # Extract thread comments data using helper function
     thread_comments_data = _extract_thread_comments_data(
         pr_data, commit_to_review, pr_commit_oids, commits
     )

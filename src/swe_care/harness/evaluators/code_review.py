@@ -4,6 +4,7 @@ from typing import Any
 
 from nltk.tokenize import word_tokenize
 from nltk.translate.bleu_score import SmoothingFunction, sentence_bleu
+from unidiff import PatchSet
 
 from swe_care.harness.evaluators import Evaluator
 from swe_care.schema.dataset import (
@@ -145,8 +146,27 @@ class RuleBasedEvaluator(Evaluator):
         """Whether this evaluator requires an input."""
         return False
 
+    def _parse_diff_hunks(diff_text):
+        patch = PatchSet(diff_text)
+        results = []
+
+        for patched_file in patch:
+            old_path = patched_file.path  # 可用 .source_file, .target_file 获取完整路径
+            for hunk in patched_file:
+                hunk_info = {
+                    "file": old_path,
+                    "old_start": hunk.source_start,
+                    "old_lines": hunk.source_length,
+                    "old_end": hunk.source_start + hunk.source_length - 1,
+                    "new_start": hunk.target_start,
+                    "new_lines": hunk.target_length,
+                    "new_end": hunk.target_start + hunk.target_length - 1,
+                }
+                results.append(hunk_info)
+        return results
+
     def extract_defects_from_review(
-        self, review_text: str
+        self, review_text: str, input: CodeReviewTaskInstance
     ) -> list[ReferenceReviewComment]:
         """Extract defects from review text that follows the REVIEW_PROMPT format.
 
@@ -174,11 +194,22 @@ class RuleBasedEvaluator(Evaluator):
                 file_path = file_path_match.group(1).strip()
                 line_num = int(line_match.group(1)) if line_match else None
                 suggestion = suggestion_match.group(1).strip()
-
+                # Extract diff hunk based on patch_to_review, file path line number
+                # if the line number falls within a hunk, use that hunk,
+                patch = input.commit_to_review.patch_to_review if input else None
+                diff_hunks = self._parse_diff_hunks(patch) if patch else []
+                diff_hunk = None
+                for hunk in diff_hunks:
+                    if (
+                        hunk["file"] == file_path
+                        and hunk["new_start"] <= line_num <= hunk["new_end"]
+                    ):
+                        diff_hunk = f"@@ -{hunk['old_start']},{hunk['old_lines']} +{hunk['new_start']},{hunk['new_lines']} @@\n"
+                        break
                 defect = ReferenceReviewComment(
                     text=suggestion,
                     path=file_path,
-                    diff_hunk=None,
+                    diff_hunk=diff_hunk,
                     line=line_num,
                     start_line=None,
                     original_line=None,
@@ -233,9 +264,14 @@ class RuleBasedEvaluator(Evaluator):
             )  # process single line
             return set(range(new_start, new_start + new_lines))
 
-        pred_hunk_lines = (
-            parse_header(pred_defect.diff_hunk) if pred_defect.diff_hunk else set()
-        )
+        if pred_defect.diff_hunk:
+            pred_hunk_lines = (
+                parse_header(pred_defect.diff_hunk) if pred_defect.diff_hunk else set()
+            )
+        else:
+            # if diff hunk does not exist, create a diff hunk for the five lines above and below the line number.
+            pred_hunk_lines = set(range(pred_defect.line - 5, pred_defect.line + 5))
+
         ref_hunk_lines = (
             parse_header(ref_defect.diff_hunk) if ref_defect.diff_hunk else set()
         )
@@ -373,7 +409,9 @@ class RuleBasedEvaluator(Evaluator):
             Dictionary containing evaluation metrics
         """
         # Extract predicted defects from review text
-        predicted_defects = self.extract_defects_from_review(prediction.review_text)
+        predicted_defects = self.extract_defects_from_review(
+            prediction.review_text, input
+        )
 
         if not predicted_defects and not reference:
             # Both empty - perfect match

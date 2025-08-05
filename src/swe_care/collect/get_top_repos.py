@@ -90,8 +90,3 @@ def get_top_repos(
     logger.success(
         f"Successfully saved {repos_collected} repositories to {output_file}"
     )
-
-
-get_top_repos(
-    "Python", 100, "results/top_repos", ["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"]
-)
