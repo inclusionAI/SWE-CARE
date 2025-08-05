@@ -1,25 +1,17 @@
 import ast
 import json
-
-# from swebench.inference.make_datasets.utils import list_files, string_to_bool
-import logging
 import os
 import re
-import shutil
 import subprocess
 import traceback
 from pathlib import Path
 from typing import Any
 
 import jedi
-from datasets import load_dataset, load_from_disk
 from filelock import FileLock
 from git import Repo
-from pyserini.search.lucene import LuceneSearcher
+from loguru import logger
 from tqdm.auto import tqdm
-
-logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
-logger = logging.getLogger(__name__)
 
 
 class ContextManager:
@@ -342,6 +334,8 @@ def search(instance, index_path):
         dict: A dictionary containing the instance ID and a list of hits, where each hit is a dictionary containing the
         document ID and its score.
     """
+    from pyserini.search.lucene import LuceneSearcher
+
     try:
         instance_id = instance["instance_id"]
         searcher = LuceneSearcher(index_path.as_posix())
@@ -493,89 +487,3 @@ def get_root_dir(dataset_name, output_dir, document_encoding_style):
         root_dir.mkdir(parents=True, exist_ok=True)
     root_dir_name = root_dir
     return root_dir, root_dir_name
-
-
-def main(
-    dataset_name_or_path,
-    document_encoding_style,
-    token,
-    output_dir,
-    shard_id,
-    num_shards,
-    splits,
-    leave_indexes,
-):
-    """Main function to run the retrieval process.
-    Args:
-        dataset_name_or_path (str): The name or path of the dataset to load.
-        document_encoding_style (str): The style of document encoding to use.
-        output_dir (str): The directory to save the output files.
-        shard_id (int): The ID of the shard to process.
-        num_shards (int): The total number of shards.
-        splits (list): The list of dataset splits to process.
-        leave_indexes (bool): Whether to leave the indexes after processing.
-    """
-    document_encoding_func = DOCUMENT_ENCODING_FUNCTIONS[document_encoding_style]
-    token = token
-    if Path(dataset_name_or_path).exists():
-        dataset = load_from_disk(dataset_name_or_path)
-        dataset_name = os.path.basename(dataset_name_or_path)
-    else:
-        dataset = load_dataset(dataset_name_or_path)
-        dataset_name = dataset_name_or_path.replace("/", "__")
-    if shard_id is not None:
-        for split in splits:
-            dataset[split] = dataset[split].shard(num_shards, shard_id)
-    instances = list()
-    if set(splits) - set(dataset.keys()) != set():
-        raise ValueError(f"Unknown splits {set(splits) - set(dataset.keys())}")
-    for split in splits:
-        instances += list(dataset[split])
-    python = subprocess.run("which python", shell=True, capture_output=True)
-    python = python.stdout.decode("utf-8").strip()
-    output_file = Path(
-        output_dir, dataset_name, document_encoding_style + ".retrieval.jsonl"
-    )
-    remaining_instances = get_remaining_instances(instances, output_file)
-    root_dir, root_dir_name = get_root_dir(
-        dataset_name, output_dir, document_encoding_style
-    )
-    try:
-        all_index_paths = get_index_paths(
-            remaining_instances,
-            root_dir_name,
-            document_encoding_func,
-            python,
-            token,
-            output_file,
-        )
-    except KeyboardInterrupt:
-        logger.info(f"Cleaning up {root_dir}")
-        del_dirs = list(root_dir.glob("repo__*"))
-        if leave_indexes:
-            index_dirs = list(root_dir.glob("index__*"))
-            del_dirs += index_dirs
-        for dirname in del_dirs:
-            shutil.rmtree(dirname, ignore_errors=True)
-    logger.info(f"Finished indexing {len(all_index_paths)} instances")
-    search_indexes(remaining_instances, output_file, all_index_paths)
-    missing_ids = get_missing_ids(instances, output_file)
-    logger.warning(f"Missing indexes for {len(missing_ids)} instances.")
-    logger.info(f"Saved retrieval results to {output_file}")
-    del_dirs = list(root_dir.glob("repo__*"))
-    logger.info(f"Cleaning up {root_dir}")
-    if leave_indexes:
-        index_dirs = list(root_dir.glob("index__*"))
-        del_dirs += index_dirs
-    for dirname in del_dirs:
-        shutil.rmtree(dirname, ignore_errors=True)
-
-
-# main(dataset_name_or_path="results/classify_prs_data/Significant-Gravitas__AutoGPT_pr_classification.jsonl",
-#      document_encoding_style="file_name_and_contents",
-#      token="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",
-#      output_dir="results/retrival_data",
-#      shard_id=None,
-#      num_shards=1,
-#      splits=['test'],
-#      leave_indexes=False)

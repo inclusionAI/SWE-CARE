@@ -195,6 +195,24 @@ def get_args():
                 help="Path to PR classification file or directory containing *_pr_classification.jsonl files",
             )
             sub_parser.add_argument(
+                "--model",
+                type=str,
+                required=True,
+                help="Model name for metadata classification (e.g., gpt-4o, claude-3-5-sonnet-20241022)",
+            )
+            sub_parser.add_argument(
+                "--model-provider",
+                type=str,
+                required=True,
+                help="Model provider for metadata classification (e.g., openai, anthropic)",
+            )
+            sub_parser.add_argument(
+                "--model-args",
+                type=str,
+                default=None,
+                help="Comma-separated model arguments for metadata classification (e.g., temperature=0.7,top_p=0.9)",
+            )
+            sub_parser.add_argument(
                 "--skip-existing",
                 action="store_true",
                 default=False,
@@ -284,6 +302,9 @@ def main():
                 function(
                     graphql_prs_data_file=args.graphql_prs_data_file,
                     pr_classification_file=args.pr_classification_file,
+                    model=args.model,
+                    model_provider=args.model_provider,
+                    model_args=args.model_args,
                     skip_existing=args.skip_existing,
                     jobs=args.jobs,
                     **common_kwargs,

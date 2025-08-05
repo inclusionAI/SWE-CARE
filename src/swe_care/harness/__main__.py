@@ -110,6 +110,7 @@ def get_args():
                 "--model-args",
                 type=str,
                 required=False,
+                default=None,
                 help="Comma-separated model arguments for LLM evaluation (e.g., 'temperature=0.7,top_p=0.9')",
             )
             sub_parser.add_argument(

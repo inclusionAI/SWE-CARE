@@ -148,6 +148,7 @@ def get_args():
             sub_parser.add_argument(
                 "--model-args",
                 type=str,
+                required=False,
                 default=None,
                 help="List of model arguments separated by commas (e.g., 'top_p=0.95,temperature=0.70')",
             )

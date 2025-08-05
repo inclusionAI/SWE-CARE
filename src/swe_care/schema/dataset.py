@@ -19,8 +19,10 @@ class ResolvedIssue:
 class IssueResolvingTaskMetadata:
     """Schema for metadata instances."""
 
-    problem_domains: list[str]
-    difficulty: str
+    problem_domain: str | None
+    """The problem domain"""
+    difficulty: str | None
+    """The task difficulty of the pull request"""
 
 
 @dataclass_json
@@ -53,11 +55,11 @@ class IssueResolvingTaskInstance:
 class CodeReviewTaskMetadata:
     """Schema for code review metadata instances."""
 
-    problem_domains: list[str]
-    """List of the problem domains"""
-    difficulty: str
+    problem_domain: str | None
+    """The problem domain"""
+    difficulty: str | None
     """The task difficulty of the pull request"""
-    estimated_review_effort: int
+    estimated_review_effort: int | None
     """The estimated review effort of the pull request between 1 and 5"""
 
 

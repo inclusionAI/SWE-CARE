@@ -20,9 +20,9 @@ from swe_care.schema.dataset import (
     ResolvedIssue,
 )
 from swe_care.utils.estimate import (
-    estimate_difficulty,
-    estimate_problem_domains,
+    classify_problem_domain,
     classify_review_effort,
+    estimate_difficulty,
 )
 from swe_care.utils.extract_prs_data import (
     extract_hints,
@@ -31,6 +31,8 @@ from swe_care.utils.extract_prs_data import (
     fetch_pr_patch,
     fetch_repo_language,
 )
+from swe_care.utils.llm_models import init_llm_client, parse_model_args
+from swe_care.utils.llm_models.clients import BaseModelClient
 
 
 def select_best_commit_to_review(
@@ -69,6 +71,7 @@ def build_code_review_dataset_single_file(
     output_file: Path,
     existing_instances: set[str],
     file_lock: threading.Lock,
+    model_client: BaseModelClient,
     tokens: Optional[list[str]] = None,
     skip_existing: bool = False,
 ) -> None:
@@ -81,6 +84,7 @@ def build_code_review_dataset_single_file(
         output_file: Path to the output file
         existing_instances: Set of existing instance IDs to check against
         file_lock: Threading lock for file operations
+        model_client: LLM client for metadata classification
         tokens: Optional list of GitHub tokens for API requests
         skip_existing: If True, skip processing existing instance_id.
                       If False, replace existing instance_id data.
@@ -220,17 +224,41 @@ def build_code_review_dataset_single_file(
                 # Extract merged patch for the entire PR
                 merged_patch = fetch_pr_patch(repo, pull_number, tokens)
 
+                try:
+                    problem_domain = classify_problem_domain(
+                        model_client, problem_statement
+                    )
+                except Exception as e:
+                    logger.warning(f"Error classifying problem domain: {e}")
+                    problem_domain = None
+
+                try:
+                    difficulty = estimate_difficulty(
+                        model_client,
+                        pr_data,
+                        head_commit_message_to_review,
+                        patch_to_review,
+                    )
+                except Exception as e:
+                    logger.warning(f"Error estimating difficulty: {e}")
+                    difficulty = None
+
+                try:
+                    estimated_review_effort = classify_review_effort(
+                        model_client,
+                        pr_data,
+                        head_commit_message_to_review,
+                        patch_to_review,
+                    )
+                except Exception as e:
+                    logger.warning(f"Error estimating review effort: {e}")
+                    estimated_review_effort = None
+
                 # Create metadata
                 metadata = CodeReviewTaskMetadata(
-                    problem_domains=estimate_problem_domains(
-                        pr_data, problem_statement
-                    ),
-                    difficulty=estimate_difficulty(
-                        pr_data, head_commit_message_to_review, patch_to_review
-                    ),
-                    estimated_review_effort=classify_review_effort(
-                        pr_data, head_commit_message_to_review, patch_to_review
-                    ),
+                    problem_domain=problem_domain,
+                    difficulty=difficulty,
+                    estimated_review_effort=estimated_review_effort,
                 )
 
                 # Get language from the repo
@@ -318,6 +346,9 @@ def build_code_review_dataset(
     graphql_prs_data_file: Path | str,
     pr_classification_file: Path | str,
     output_dir: Path | str = None,
+    model: str = None,
+    model_provider: str = None,
+    model_args: Optional[str] = None,
     tokens: Optional[list[str]] = None,
     skip_existing: bool = False,
     jobs: int = 2,
@@ -329,6 +360,9 @@ def build_code_review_dataset(
         graphql_prs_data_file: Path to GraphQL PRs data file or directory containing *_graphql_prs_data.jsonl files
         pr_classification_file: Path to PR classification file or directory containing *_pr_classification.jsonl files
         output_dir: Directory to save the output data
+        model: Model name for metadata classification (required)
+        model_provider: Model provider for metadata classification (required)
+        model_args: Comma-separated model arguments for metadata classification
         tokens: Optional list of GitHub tokens for API requests
         skip_existing: If True, skip processing existing instance_id in the output file.
                       If False, replace existing instance_id data.
@@ -342,6 +376,19 @@ def build_code_review_dataset(
         output_dir = Path(output_dir)
     if output_dir is None:
         raise ValueError("output_dir is required")
+
+    # Validate model parameters
+    if not model or not model_provider:
+        raise ValueError(
+            "model and model_provider are required for metadata classification"
+        )
+
+    # Initialize LLM client
+    model_kwargs = parse_model_args(model_args)
+    model_client = init_llm_client(model, model_provider, **model_kwargs)
+    logger.info(
+        f"Initialized {model_provider} client with model {model} for metadata classification"
+    )
 
     output_dir = Path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -367,6 +414,7 @@ def build_code_review_dataset(
             output_file,
             existing_instances,
             file_lock,
+            model_client,
             tokens,
             skip_existing,
         )
@@ -413,6 +461,7 @@ def build_code_review_dataset(
                     output_file,
                     existing_instances,
                     file_lock,
+                    model_client,
                     tokens,
                     skip_existing,
                 ): (graphql_file, classification_file)

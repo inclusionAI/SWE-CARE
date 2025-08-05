@@ -101,14 +101,30 @@ Here's an example of the command-line usage for each step:
     * **Commit Evaluation**: Uses heuristic rules to score commits based on quality indicators (message clarity, size, review activity, etc.)
     * **Review Comment Classification**: Extracts and labels review comments based on whether referenced lines were actually changed in the merged commit, or the review thread is resolved, outdated, or collapsed.
 
-4. **Build Code Review Dataset**: Build the final dataset for the code review task.
+4. **Build Code Review Dataset**: Build the final dataset for the code review task. This step requires an LLM to classify metadata such as problem domain, difficulty, and review effort for each task instance.
 
     **Single file processing:**
 
     ```bash
+    # Example with OpenAI GPT-4o
+    export OPENAI_API_KEY=<your_openai_api_key>
     python -m swe_care.collect build_code_review_dataset \
         --graphql-prs-data-file "results/graphql_prs_data/<repo_owner>__<repo_name>_graphql_prs_data.jsonl" \
         --pr-classification-file "results/classify_prs_data/<repo_owner>__<repo_name>_pr_classification.jsonl" \
+        --model "gpt-4o" \
+        --model-provider "openai" \
+        --model-args "temperature=0.7,top_p=0.9" \
+        --output-dir "./results/dataset" \
+        --tokens "your_github_pat"
+
+    # Example with Anthropic Claude
+    export ANTHROPIC_API_KEY=<your_anthropic_api_key>
+    python -m swe_care.collect build_code_review_dataset \
+        --graphql-prs-data-file "results/graphql_prs_data/<repo_owner>__<repo_name>_graphql_prs_data.jsonl" \
+        --pr-classification-file "results/classify_prs_data/<repo_owner>__<repo_name>_pr_classification.jsonl" \
+        --model "claude-3-5-sonnet-20241022" \
+        --model-provider "anthropic" \
+        --model-args "temperature=0.5,max_tokens=4096" \
         --output-dir "./results/dataset" \
         --tokens "your_github_pat"
     ```
@@ -116,9 +132,13 @@ Here's an example of the command-line usage for each step:
     **Batch processing (multiple repositories):**
 
     ```bash
+    export OPENAI_API_KEY=<your_openai_api_key>
     python -m swe_care.collect build_code_review_dataset \
         --graphql-prs-data-file "results/graphql_prs_data/" \
         --pr-classification-file "results/classify_prs_data/" \
+        --model "gpt-4o" \
+        --model-provider "openai" \
+        --model-args "temperature=0.7" \
         --output-dir "./results/dataset" \
         --tokens "your_github_pat" \
         --jobs 4
