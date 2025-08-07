@@ -262,6 +262,12 @@ def get_args():
                 default=2,
                 help="Number of concurrent jobs/threads to use (default: 2)",
             )
+            sub_parser.add_argument(
+                "--retrieval-max-files",
+                type=int,
+                default=5,
+                help="Maximum number of files to use for retrieval when file_source is 'retrieved_base_changed_files' or 'retrieved_all_files' (default: 5)",
+            )
 
     # Parse all arguments with the subcommand parser
     # This will include both global and subcommand-specific arguments
@@ -321,6 +327,7 @@ def main():
                     pr_classification_file=args.pr_classification_file,
                     file_source=args.file_source,
                     jobs=args.jobs,
+                    retrieval_max_files=args.retrieval_max_files,
                     **common_kwargs,
                 )
     else:
