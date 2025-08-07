@@ -1,9 +1,11 @@
+import json
 import os
 import re
 import subprocess
 from collections import defaultdict
 from datetime import datetime
 from functools import lru_cache, wraps
+from pathlib import Path
 from typing import Any, Optional
 
 from loguru import logger
@@ -11,7 +13,6 @@ from loguru import logger
 from swe_care.schema.collect import LabeledReviewComment, ReviewCommentLabels
 from swe_care.utils.bm25_retrieval import (
     DOCUMENT_ENCODING_FUNCTIONS,
-    ContextManager,
     clone_repo,
     make_index,
     search,
@@ -659,23 +660,37 @@ def fetch_repo_files_content_by_retrieval(
         # Extract file contents for top results
         retrieved_files = {}
         if results and results.get("hits"):
-            # specific commit
-            with ContextManager(repo_dir, commit):
-                for hit in results["hits"][:max_files]:
-                    file_path = hit["docid"]
-                    try:
-                        # Get file content from the repository at the specified commit
-                        content = fetch_repo_file_content(
-                            repo, commit, file_path, tokens
-                        )
+            # Construct path to documents.jsonl file created during indexing
+            instance_id = f"{repo.replace('/', '__')}_{commit[:8]}"
+            documents_path = Path(temp_repo_dir) / instance_id / "documents.jsonl"
+
+            # Load all documents from jsonl file
+            documents_dict = {}
+            if documents_path.exists():
+                with open(documents_path, "r", encoding="utf-8") as f:
+                    for line in f:
+                        try:
+                            doc = json.loads(line.strip())
+                            documents_dict[doc["id"]] = doc["contents"]
+                        except Exception as e:
+                            logger.warning(f"Failed to parse document line: {e}")
+                            continue
+
+            for hit in results["hits"][:max_files]:
+                file_path = hit["docid"]
+                try:
+                    if file_path in documents_dict:
+                        content = documents_dict[file_path]
                         retrieved_files[file_path] = content
                         logger.debug(
                             f"Retrieved file: {file_path} (score: {hit['score']:.3f})"
                         )
-                    except Exception as e:
-                        logger.warning(
-                            f"Failed to fetch content for retrieved file {file_path}: {e}"
-                        )
+                    else:
+                        logger.warning(f"File {file_path} not found in documents.jsonl")
+                except Exception as e:
+                    logger.warning(
+                        f"Failed to fetch content for retrieved file {file_path}: {e}"
+                    )
 
         # Clean up temporary directory
         # shutil.rmtree(temp_dir, ignore_errors=True)

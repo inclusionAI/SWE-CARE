@@ -43,7 +43,7 @@ class ContextManager:
 
     def __enter__(self):
         if self.verbose:
-            print(f"Switching to {self.base_commit}")
+            logger.debug(f"Switching to {self.base_commit}")
         try:
             self.repo.git.reset("--hard", self.base_commit)
             self.repo.git.clean("-fdxq")
