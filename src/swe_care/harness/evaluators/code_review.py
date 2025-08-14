@@ -13,9 +13,10 @@ from swe_care.schema.dataset import (
 )
 from swe_care.schema.evaluation import CodeReviewPrediction
 from swe_care.utils.llm_models.clients import BaseModelClient
+from swe_care.utils.template import render_template
 
 EVALUATION_PROMPT = """\
-You are a code review evaluater. Your task is to evaluate the quality of the code review. You need to evaluate the code reviews based on the quality attributes of a standard code review, which are shown below:
+You are a code review evaluator. Your task is to evaluate the quality of the code review. You need to evaluate the code reviews based on the quality attributes of a standard code review, which are shown below:
 
 - Functionality: An evaluation of whether the main purpose of the patch, its functionality, and any potential functional or security defects have been described.
 - Quality: An evaluation of the accuracy of code quality descriptions, including patch complexity (line-level, function-level, class-level, file-level), code readability, optimization status, and maintainability, etc.
@@ -51,6 +52,11 @@ class LLMEvaluator(Evaluator):
         """Initialize the LLM evaluator with a model client."""
         super().__init__(**kwargs)
         self.model_client = model_client
+
+    @property
+    def requires_input(self) -> bool:
+        """Need the input to format the judge prompt"""
+        return True
 
     def _parse_json(self, text: str) -> dict:
         # Try to find JSON string within triple backticks, assuming there are possibly multiple json markdown string
@@ -108,11 +114,22 @@ class LLMEvaluator(Evaluator):
         reference: Any,
         input: CodeReviewTaskInstance,
     ) -> dict:
+        system_prompt = EVALUATION_PROMPT
+        user_prompt = render_template(
+            "code_review_llm_evaluation_user_prompt.j2",
+            input=input,
+            prediction=prediction,
+        )
+
         messages = [
             {
+                "role": "system",
+                "content": system_prompt,
+            },
+            {
                 "role": "user",
-                "content": prediction.review_text + "\n" + EVALUATION_PROMPT,
-            }
+                "content": user_prompt,
+            },
         ]
 
         answer = self.model_client.create_completion(messages)
