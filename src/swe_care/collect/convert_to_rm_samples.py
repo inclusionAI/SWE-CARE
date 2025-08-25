@@ -4,7 +4,7 @@ Module for converting PR classification data to reward model training samples.
 
 import json
 import string
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor, as_completed
 from pathlib import Path
 from typing import Literal, Optional
 
@@ -117,8 +117,20 @@ def convert_to_rm_samples(
 
         logger.info(f"Found {len(file_pairs)} file pairs to process")
 
+        # Choose executor based on file_source
+        # Use ProcessPoolExecutor for retrieved_all_files to enable better parallelism
+        # with file system operations and git worktrees
+        if file_source == "retrieved_all_files":
+            executor_class = ProcessPoolExecutor
+            logger.info(
+                f"Using ProcessPoolExecutor with {jobs} workers for retrieved_all_files"
+            )
+        else:
+            executor_class = ThreadPoolExecutor
+            logger.info(f"Using ThreadPoolExecutor with {jobs} threads")
+
         # Process files in parallel
-        with ThreadPoolExecutor(max_workers=jobs) as executor:
+        with executor_class(max_workers=jobs) as executor:
             # Submit all tasks
             future_to_file = {
                 executor.submit(
@@ -142,9 +154,12 @@ def convert_to_rm_samples(
                     total_prs_estimate += sum(1 for _ in f)
 
             # Process completed tasks with progress bar
+            executor_type = (
+                "processes" if file_source == "retrieved_all_files" else "threads"
+            )
             with tqdm(
                 total=total_prs_estimate,
-                desc=f"Converting to RM samples ({jobs} threads)",
+                desc=f"Converting to RM samples ({jobs} {executor_type})",
                 unit="PR",
             ) as pbar:
                 successful_files = 0
