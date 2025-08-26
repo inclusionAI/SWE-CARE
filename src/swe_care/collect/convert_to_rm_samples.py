@@ -392,6 +392,24 @@ def convert_to_rm_samples_single_file(
     return processed_samples
 
 
+def is_positive_review(comment: LabeledReviewComment) -> bool:
+    """
+    Determine if a review comment is positive.
+
+    A review is positive if referenced_line_changed_in_merged_commit is True and is_resolved is True.
+
+    Args:
+        comment: The labeled review comment to check
+
+    Returns:
+        True if the review is positive, False otherwise
+    """
+    return (
+        comment.labels.referenced_line_changed_in_merged_commit
+        and comment.labels.is_resolved
+    )
+
+
 def convert_pr_to_samples(
     pr_data: dict,
     pr_classification: PRClassification,
@@ -455,10 +473,30 @@ def convert_pr_to_samples(
             # Skip if no patch content
             continue
 
+        # First pass: Check if we have both positive and negative reviews
+        has_positive = False
+        has_negative = False
+
+        for comment in commit_classification.labeled_review_comments:
+            if is_positive_review(comment):
+                has_positive = True
+            else:
+                has_negative = True
+
+            # Early exit if we found both types
+            if has_positive and has_negative:
+                break
+
+        # Skip this commit if we don't have both positive and negative reviews
+        if not (has_positive and has_negative):
+            continue
+
+        # Now we know we'll create a sample, so we can fetch files
         # Separate positive and negative reviews
         pos_reviews = []
         neg_reviews = []
 
+        # Fetch changed files once if needed
         if file_source in (
             "base_changed_files",
             "retrieved_base_changed_files",
@@ -472,13 +510,8 @@ def convert_pr_to_samples(
         else:
             changed_files = {}
 
+        # Second pass: Process comments with file fetching
         for comment in commit_classification.labeled_review_comments:
-            # A review is positive if referenced_line_changed_in_merged_commit is True and is_resolved is True
-            is_positive = (
-                comment.labels.referenced_line_changed_in_merged_commit
-                and comment.labels.is_resolved
-            )
-
             # For "reviewed_file" option, fetch the specific file that this comment applies to
             relevant_files = {}
             if file_source == "reviewed_file" and comment.path:
@@ -554,30 +587,29 @@ def convert_pr_to_samples(
                 relevant_files,
             )
 
-            if is_positive:
+            if is_positive_review(comment):
                 pos_reviews.append(review_str)
             else:
                 neg_reviews.append(review_str)
 
-        # Only create sample if we have both positive and negative reviews
-        if pos_reviews and neg_reviews:
-            # Create metadata for this sample
-            metadata = RewardModelTrainingSampleMetadata(
-                repo=repo,
-                pr_number=pr_number,
-                url=pr_url,
-                commit_to_review=commit_classification.commit_sha,
-                file_source=file_source,
-            )
+        # Create sample (we already checked that both pos_reviews and neg_reviews exist)
+        # Create metadata for this sample
+        metadata = RewardModelTrainingSampleMetadata(
+            repo=repo,
+            pr_number=pr_number,
+            url=pr_url,
+            commit_to_review=commit_classification.commit_sha,
+            file_source=file_source,
+        )
 
-            sample = RewardModelTrainingSample(
-                problem_statement=problem_statement,
-                patch_to_review=patch_to_review,
-                pos_review=pos_reviews,
-                neg_review=neg_reviews,
-                metadata=metadata,
-            )
-            samples.append(sample)
+        sample = RewardModelTrainingSample(
+            problem_statement=problem_statement,
+            patch_to_review=patch_to_review,
+            pos_review=pos_reviews,
+            neg_review=neg_reviews,
+            metadata=metadata,
+        )
+        samples.append(sample)
 
     return samples
 
