@@ -1,7 +1,12 @@
+{% if files -%}
 You will be provided with 1) a partial code base, 2) an issue statement explaining a problem to resolve, and 3) a patch addressing the issue.
+{% else -%}
+You will be provided with 1) an issue statement explaining a problem to resolve, and 2) a patch addressing the issue.
+{% endif -%}
 <issue>
 {{ problem_statement }}
 </issue>
+{% if files -%}
 <code>
 {% for file_path, file_content in files.items() -%}
 [start of {{ file_path }}]
@@ -15,6 +20,7 @@ You will be provided with 1) a partial code base, 2) an issue statement explaini
 [end of {{ file_path }}]
 {% endfor -%}
 </code>
+{% endif -%}
 <patch>
 {{ patch }}
 </patch>

@@ -33,7 +33,7 @@ from swe_care.utils.template import render_template
 def create_code_review_text(
     dataset_file: Path | str,
     output_dir: Path | str,
-    file_source: Literal["oracle", "bm25", "all"],
+    file_source: Literal["none", "oracle", "bm25", "all"],
     k: int | None = None,
     retrieval_output_dir: Path | None = None,
     tokens: list[str] | None = None,
@@ -45,7 +45,7 @@ def create_code_review_text(
     Args:
         dataset_file: Path to the input SWE-CARE dataset
         output_dir: Directory to save the generated text dataset
-        file_source: Source strategy for files - 'oracle', 'bm25', or 'all'
+        file_source: Source strategy for files - 'none', 'oracle', 'bm25', or 'all'
         k: Maximum number of files to use for retrieval
         retrieval_output_dir: Output directory for retrieval operations (required for bm25 and all file_source)
         tokens: GitHub API tokens (optional)
@@ -150,7 +150,7 @@ def create_code_review_text(
 
 def create_code_review_text_instance(
     instance: CodeReviewTaskInstance,
-    file_source: Literal["oracle", "bm25", "all"],
+    file_source: Literal["none", "oracle", "bm25", "all"],
     k: int | None = None,
     retrieval_output_dir: Path | None = None,
     tokens: list[str] | None = None,
@@ -169,7 +169,9 @@ def create_code_review_text_instance(
         Processed instance with text content
     """
     # Get files based on the source strategy
-    if file_source == "oracle":
+    if file_source == "none":
+        files = {}  # No files for "none" strategy
+    elif file_source == "oracle":
         files = get_oracle_files(instance, tokens)
     elif file_source == "bm25":
         files = get_bm25_files(instance, retrieval_output_dir, k, tokens)
@@ -372,9 +374,6 @@ def generate_context_text(
     Returns:
         Generated context text
     """
-    if not files:
-        return ""
-
     # Render the template with the provided context
     return render_template(
         "code_review_text_prompt.j2",

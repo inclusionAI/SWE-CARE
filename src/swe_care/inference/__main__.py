@@ -84,16 +84,16 @@ def get_args():
             sub_parser.add_argument(
                 "--file-source",
                 type=str,
-                choices=["oracle", "bm25", "all"],
+                choices=["none", "oracle", "bm25", "all"],
                 required=True,
-                help="Source strategy for files: 'oracle' (ground truth), 'bm25' (retrieval), or 'all' (all available)",
+                help="Source strategy for files: 'none' (no files), 'oracle' (ground truth), 'bm25' (retrieval), or 'all' (all available)",
             )
             sub_parser.add_argument(
                 "--k",
                 type=int,
                 required=False,
                 default=None,
-                help="Maximum number of files to use for retrieval (required when --file-source is 'bm25' or 'all')",
+                help="Maximum number of files to use (required when --file-source is 'bm25' or 'all')",
             )
             sub_parser.add_argument(
                 "--retrieval-output-dir",
