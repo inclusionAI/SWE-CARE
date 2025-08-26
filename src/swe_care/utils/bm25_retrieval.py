@@ -81,8 +81,7 @@ class ContextManager:
             self.repo = Repo(self.worktree_path)
 
         except Exception as e:
-            logger.error(f"Failed to create worktree for {self.base_commit}")
-            logger.error(e)
+            logger.error(f"Failed to create worktree for {self.base_commit}: {str(e)}")
             # Clean up on error
             if self.temp_dir and os.path.exists(self.temp_dir):
                 shutil.rmtree(self.temp_dir, ignore_errors=True)
