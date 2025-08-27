@@ -1,4 +1,3 @@
-import json
 import os
 import random
 import re
@@ -710,44 +709,11 @@ def fetch_repo_files_content_by_retrieval(
         # Extract file contents for top results
         retrieved_files = {}
         if results and results.get("hits"):
-            # Construct path to documents.jsonl file created during indexing
-            instance_id = f"{repo.replace('/', '__')}_{commit[:8]}"
-            documents_path = (
-                Path(retrieval_output_dir)
-                / "documents"
-                / instance_id
-                / "documents.jsonl"
-            )
-
-            # Load all documents from jsonl file
-            documents_dict = {}
-            if documents_path.exists():
-                with open(documents_path, "r", encoding="utf-8") as f:
-                    for line in f:
-                        try:
-                            doc = json.loads(line.strip())
-                            documents_dict[doc["id"]] = doc["contents"]
-                        except Exception as e:
-                            logger.warning(f"Failed to parse document line: {e}")
-                            continue
-
             for hit in results["hits"][:max_files]:
                 file_path = hit["docid"]
-                try:
-                    if file_path in documents_dict:
-                        content = documents_dict[file_path]
-                        retrieved_files[file_path] = content
-                        logger.debug(
-                            f"Retrieved file: {file_path} (score: {hit['score']:.3f})"
-                        )
-                    else:
-                        logger.warning(
-                            f"File {file_path} not found in {documents_path}"
-                        )
-                except Exception as e:
-                    logger.warning(
-                        f"Failed to fetch content for retrieved file {file_path}: {e}"
-                    )
+                content = hit["doc"]
+                retrieved_files[file_path] = content
+                logger.debug(f"Retrieved file: {file_path} (score: {hit['score']:.3f})")
 
         logger.info(
             f"Retrieved {len(retrieved_files)} files using retrieval for {repo}@{commit[:8]}"

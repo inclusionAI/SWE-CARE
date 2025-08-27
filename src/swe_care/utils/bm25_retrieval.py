@@ -457,7 +457,9 @@ def search(instance, index_path, k=20):
             break
         results = {"instance_id": instance_id, "hits": []}
         for hit in hits:
-            results["hits"].append({"docid": hit.docid, "score": hit.score})
+            doc = json.loads(hit.lucene_document.get("raw"))
+            raw = doc.get("contents") or doc.get("text") or doc.get("segment") or ""
+            results["hits"].append({"docid": hit.docid, "score": hit.score, "doc": raw})
         return results
     except Exception:
         logger.error(f"Failed to process {instance_id}")
