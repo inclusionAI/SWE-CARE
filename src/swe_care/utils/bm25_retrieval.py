@@ -3,7 +3,6 @@ import json
 import os
 import re
 import shutil
-import subprocess
 import tempfile
 import traceback
 from pathlib import Path
@@ -298,7 +297,6 @@ def make_index(
     root_dir,
     commit,
     document_encoding_func,
-    python,
     instance_id,
 ):
     """
@@ -309,7 +307,6 @@ def make_index(
         root_dir (str): The path to the root directory.
         commit (str): The commit hash to use for retrieval.
         document_encoding_func (function): The function to use for encoding documents.
-        python (str): The path to the Python executable.
         instance_id (int): The ID of the current instance.
 
     Returns:
@@ -330,7 +327,6 @@ def make_index(
     with index_lock:
         if index_path.exists():
             return index_path
-        thread_prefix = f"(pid {os.getpid()}) "
 
         # Create documents subdirectory
         documents_dir = Path(root_dir) / "documents"
@@ -348,44 +344,45 @@ def make_index(
                     file=docfile,
                     flush=True,
                 )
-        cmd = [
-            python,
-            "-m",
-            "pyserini.index",
-            "--collection",
+
+        # Use pyserini's autoclass to ensure proper classpath configuration
+        from pyserini.pyclass import autoclass
+
+        # Suppress Java logging output
+        JLogManager = autoclass("java.util.logging.LogManager")
+        JLevel = autoclass("java.util.logging.Level")
+
+        # Get the root logger and set its level to SEVERE (only show critical errors)
+        root_logger = JLogManager.getLogManager().getLogger("")
+        root_logger.setLevel(JLevel.SEVERE)
+
+        # Also suppress specific Anserini loggers
+        for logger_name in ["io.anserini", "org.apache.lucene"]:
+            logger = JLogManager.getLogManager().getLogger(logger_name)
+            if logger:
+                logger.setLevel(JLevel.SEVERE)
+
+        # Prepare arguments for IndexCollection
+        args = [
+            "-collection",
             "JsonCollection",
-            "--generator",
+            "-generator",
             "DefaultLuceneDocumentGenerator",
-            "--threads",
+            "-threads",
             "2",
-            "--input",
+            "-input",
             documents_path.parent.as_posix(),
-            "--index",
+            "-index",
             index_path.as_posix(),
-            "--storePositions",
-            "--storeDocvectors",
-            "--storeRaw",
+            "-storePositions",
+            "-storeDocvectors",
+            "-storeRaw",
+            "-quiet",  # Suppress verbose output
         ]
-        try:
-            proc = subprocess.Popen(
-                cmd,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                universal_newlines=True,
-            )
-            output, error = proc.communicate()
-        except KeyboardInterrupt:
-            proc.kill()
-            raise KeyboardInterrupt
-        if proc.returncode == 130:
-            logger.warning(thread_prefix + "Process killed by user")
-            raise KeyboardInterrupt
-        if proc.returncode != 0:
-            logger.error(f"return code: {proc.returncode}")
-            raise Exception(
-                thread_prefix
-                + f"Failed to build index for {instance_id} with error {error}"
-            )
+
+        # Call the Java IndexCollection directly
+        JIndexCollection = autoclass("io.anserini.index.IndexCollection")
+        JIndexCollection.main(args)
     return index_path
 
 
@@ -509,7 +506,6 @@ def get_index_paths_worker(
     instance,
     root_dir_name,
     document_encoding_func,
-    python,
     token,
 ):
     """
@@ -526,7 +522,6 @@ def get_index_paths_worker(
             root_dir=root_dir_name,
             commit=commit,
             document_encoding_func=document_encoding_func,
-            python=python,
             instance_id=instance_id,
         )
     except Exception:
@@ -539,7 +534,6 @@ def get_index_paths(
     remaining_instances: list[dict[str, Any]],
     root_dir_name: str,
     document_encoding_func: Any,
-    python: str,
     token: str,
     output_file: str,
 ) -> dict[str, str]:
@@ -550,10 +544,8 @@ def get_index_paths(
         remaining_instances: A list of instances for which to retrieve the index paths.
         root_dir_name: The root directory name.
         document_encoding_func: A function for encoding documents.
-        python: The path to the Python executable.
         token: The token to use for authentication.
         output_file: The output file.
-        num_workers: The number of worker processes to use.
 
     Returns:
         A dictionary mapping instance IDs to index paths.
@@ -564,7 +556,6 @@ def get_index_paths(
             instance=instance,
             root_dir_name=root_dir_name,
             document_encoding_func=document_encoding_func,
-            python=python,
             token=token,
         )
         if index_path is None:

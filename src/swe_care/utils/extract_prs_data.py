@@ -1,7 +1,6 @@
 import os
 import random
 import re
-import subprocess
 from collections import defaultdict
 from datetime import datetime
 from functools import lru_cache, wraps
@@ -684,16 +683,12 @@ def fetch_repo_files_content_by_retrieval(
                 random.choice(tokens) if tokens else None,
             )
 
-        # Constrct the index
-        python = subprocess.run("which python", shell=True, capture_output=True)
-        python = python.stdout.decode("utf-8").strip()
-
+        # Construct the index
         index_path = make_index(
             repo_dir=repo_dir,
             root_dir=retrieval_output_dir,
             commit=commit,
             document_encoding_func=DOCUMENT_ENCODING_FUNCTIONS["contents_only"],
-            python=python,
             instance_id=f"{repo.replace('/', '__')}_{commit[:8]}",
         )
 
