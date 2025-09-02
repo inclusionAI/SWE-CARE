@@ -23,7 +23,7 @@ from swe_care.utils.file_source_retrieval import (
     get_changed_files_in_patch,
     get_relevant_files,
 )
-from swe_care.utils.template import render_template
+from swe_care.utils.prompt_loader import load_prompt
 
 
 def convert_to_rm_samples(
@@ -592,9 +592,9 @@ def format_review_comment(
     # Extract review comment text
     review_comment = comment.text.strip() or ""
 
-    # Render the template with the provided context
-    return render_template(
-        "rm_sample.j2",
+    # Load and render the prompt with the provided context
+    return load_prompt(
+        "rm_sample",
         relevant_files=relevant_files,
         diff_hunk=diff_hunk,
         path=path,

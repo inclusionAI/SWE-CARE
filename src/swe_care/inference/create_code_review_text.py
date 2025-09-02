@@ -27,7 +27,7 @@ from swe_care.utils.extract_prs_data import (
 )
 from swe_care.utils.load import load_code_review_dataset
 from swe_care.utils.patch import get_changed_file_paths
-from swe_care.utils.template import render_template
+from swe_care.utils.prompt_loader import load_prompt
 
 
 def create_code_review_text(
@@ -374,9 +374,9 @@ def generate_context_text(
     Returns:
         Generated context text
     """
-    # Render the template with the provided context
-    return render_template(
-        "code_review_text_prompt.j2",
+    # Load and render the prompt with the provided context
+    return load_prompt(
+        "code_review_text_prompt",
         problem_statement=instance.problem_statement,
         files=files,
         patch=instance.commit_to_review.patch_to_review,

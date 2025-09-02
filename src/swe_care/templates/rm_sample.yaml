@@ -1,0 +1,26 @@
+text: |-
+  {% if relevant_files -%}
+  <code>
+  {% for file_path, file_content in relevant_files.items() -%}
+  [start of {{ file_path }}]
+  {% if add_line_numbers -%}
+  {% for line in file_content.split('\n') -%}
+  {{ "{:4d}".format(loop.index) }} {{ line }}
+  {% endfor -%}
+  {% else -%}
+  {{ file_content }}
+  {% endif -%}
+  [end of {{ file_path }}]
+  {% endfor -%}
+  </code>
+  {% endif -%}
+  {% if diff_hunk -%}
+  <diff_hunk>
+  {{ diff_hunk }}
+  </diff_hunk>
+  {% endif -%}
+  <path>{{ path }}</path>
+  <line>{{ line }}</line>
+  <review_comment>
+  {{ review_comment }}
+  </review_comment>

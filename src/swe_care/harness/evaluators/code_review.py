@@ -14,36 +14,9 @@ from swe_care.schema.dataset import (
 )
 from swe_care.schema.evaluation import CodeReviewPrediction
 from swe_care.utils.llm_models.clients import BaseModelClient
-from swe_care.utils.template import render_template
+from swe_care.utils.prompt_loader import load_prompt
 
-EVALUATION_PROMPT = """\
-You are a code review evaluator. Your task is to evaluate the quality of the code review. You need to evaluate the code reviews based on the quality attributes of a standard code review, which are shown below:
-
-- Functionality: An evaluation of whether the main purpose of the patch, its functionality, and any potential functional or security defects have been described.
-- Quality: An evaluation of the accuracy of code quality descriptions, including patch complexity (line-level, function-level, class-level, file-level), code readability, optimization status, and maintainability, etc.
-- Style: An evaluation of whether the patch follows the programming conventions of the original code, e.g. the naming of variables and functions.
-- Documentation: An evaluation of whether the patch provide clear and necessary comments, as well as documentation.
-
-For each field, you should analyze:
-
-- Correctness: whether the review is technically correct and contains no factual errors with regard to the provided issue, code base, and patch.
-- Relevance: whether the review is targeted at the issue and the code patch.
-- Clarity: whether the review is clear and without redundant information.
-- Consistency: whether the review is logically consistent with the issue, code base, patch, and other fields in the review.
-- Language: whether the review uses professional language and contains no grammatical errors. Whether it facilitate the knowledge transfer, expresses in a kind way and provides positive feedback.
-
-Give a score between 0 and 1 (inclusive) to each of these five dimensions, and output your final evaluation in nested json format:
-```
-{
-    "function": {"correctness": score, "relevance": score, "clarity": score, "consistency": score, "language": score},
-    "quality": {"correctness": score, "relevance": score, "clarity": score, "consistency": score, "language": score},
-    "style": {"correctness": score, "relevance": score, "clarity": score, "consistency": score, "language": score},
-    "documentation": {"correctness": score, "relevance": score, "clarity": score, "consistency": score, "language": score}
-}
-```
-
-If you cannot identify a certain field from the review, give a 0 score to all dimensions in this field.
-"""
+# System prompt is now loaded from the YAML template
 
 
 class LLMEvaluator(Evaluator):
@@ -138,9 +111,9 @@ class LLMEvaluator(Evaluator):
         reference: Any,
         input: CodeReviewTaskInstance,
     ) -> dict:
-        system_prompt = EVALUATION_PROMPT
-        user_prompt = render_template(
-            "code_review_llm_evaluation_user_prompt.j2",
+        # Load prompts from YAML template
+        system_prompt, user_prompt = load_prompt(
+            "code_review_llm_evaluation",
             input=input,
             prediction=prediction,
         )

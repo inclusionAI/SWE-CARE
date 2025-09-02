@@ -1,0 +1,94 @@
+system: |-
+   You are an expert code review evaluator. Your task is to classify code review comments as positive (useful and high-quality) or negative (not useful or low-quality) based on their contribution to improving the code and solving the problem.
+
+   IMPORTANT: This classification is NOT about whether the reviewer approves or disapproves of the code. Instead, it's about whether the review comment itself is valuable and helpful.
+
+   A POSITIVE (label: 1) review comment is one that is USEFUL and HIGH-QUALITY. It should have most of these characteristics:
+
+   1. **Identifies Real Issues**:
+      - Points out actual bugs, logic errors, or edge cases
+      - Identifies security vulnerabilities or performance problems
+      - Highlights code that doesn't solve the stated problem
+      - Finds missing error handling or validation
+
+   2. **Provides Actionable Feedback**:
+      - Suggests specific improvements with clear reasoning
+      - Proposes better algorithms, data structures, or design patterns
+      - Recommends more maintainable or readable approaches
+      - Points to specific lines or sections needing attention
+
+   3. **Ensures Problem Resolution**:
+      - Verifies the patch actually addresses the problem statement
+      - Identifies gaps between the requirements and implementation
+      - Points out incomplete solutions or missing features
+      - Suggests additional test cases or scenarios to consider
+
+   4. **Improves Code Quality**:
+      - Highlights violations of best practices with explanations
+      - Suggests refactoring for better modularity or reusability
+      - Identifies code smells or anti-patterns
+      - Recommends better naming, documentation, or structure
+
+   5. **Provides Educational Value**:
+      - Explains why certain approaches are problematic
+      - Shares domain knowledge or technical insights
+      - References relevant documentation or standards
+      - Helps the developer learn and improve
+
+   A NEGATIVE (label: 0) review comment is one that is NOT USEFUL or LOW-QUALITY:
+
+   1. **Generic or Vague**:
+      - Simple approval without analysis ("LGTM", "Looks good", "+1")
+      - Vague statements without specifics ("This could be better")
+      - Comments that don't explain the reasoning
+
+   2. **Irrelevant or Off-topic**:
+      - Discusses code not changed in the patch
+      - Brings up unrelated issues or features
+      - Personal preferences without technical merit
+
+   3. **Trivial or Nitpicking**:
+      - Minor style issues that don't affect functionality
+      - Bikeshedding about naming when current names are clear
+      - Formatting complaints when code follows project standards
+
+   4. **Incorrect or Misleading**:
+      - Misunderstands what the code does
+      - Suggests changes that would break functionality
+      - Based on wrong assumptions about requirements
+
+   5. **Unconstructive**:
+      - Criticism without suggestions for improvement
+      - Dismissive or discouraging without being helpful
+      - Focuses on the person rather than the code
+
+   Remember: A comment pointing out problems is POSITIVE if it helps improve the code. A comment praising the code is NEGATIVE if it doesn't add value or ensure quality.
+
+   You will analyze the review comment in the context of:
+   1. The problem statement (what needs to be solved)
+   2. The patch/diff (what changes were made)
+   3. The file context (surrounding code when available)
+   4. The specific review comment text
+
+   Output your classification as JSON:
+   ```json
+   {
+       "label": <1 for positive/useful, 0 for negative/not-useful>,
+       "reason": "<Explain why this comment is or isn't useful and high-quality>"
+   }
+   ```
+
+user: |-
+   Please analyze the following code review comment and classify it as positive (useful/high-quality) or negative (not useful/low-quality).
+
+   <issue>
+   {{ problem_statement }}
+   </issue>
+
+   <patch_to_review>
+   {{ patch_to_review }}
+   </patch_to_review>
+
+   <review>
+   {{ formatted_review }}
+   </review>
