@@ -3,14 +3,11 @@ Module for converting PR classification data to reward model training samples.
 """
 
 import json
-import string
 from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor, as_completed
 from pathlib import Path
 from typing import Literal, Optional
 
 from loguru import logger
-from nltk.tokenize import word_tokenize
-from rank_bm25 import BM25Okapi
 from tqdm import tqdm
 
 from swe_care.schema.collect import (
@@ -21,10 +18,11 @@ from swe_care.schema.collect import (
 )
 from swe_care.utils.extract_prs_data import (
     extract_problem_statement,
-    fetch_repo_file_content,
-    fetch_repo_files_content_by_retrieval,
 )
-from swe_care.utils.patch import get_changed_file_paths
+from swe_care.utils.file_source_retrieval import (
+    get_changed_files_in_patch,
+    get_relevant_files,
+)
 from swe_care.utils.template import render_template
 
 
@@ -496,90 +494,34 @@ def convert_pr_to_samples(
         pos_reviews = []
         neg_reviews = []
 
-        # Fetch changed files once if needed
+        # Fetch changed files once if needed for certain file_source strategies to avoid re-fetching
         if file_source in (
             "base_changed_files",
             "retrieved_base_changed_files",
         ):
-            changed_files = get_changed_files(
+            changed_files = get_changed_files_in_patch(
                 repo=repo,
                 base_commit=base_commit,
                 patch_to_review=patch_to_review,
                 tokens=tokens,
             )
         else:
-            changed_files = {}
+            changed_files = None
 
         # Second pass: Process comments with file fetching
         for comment in commit_classification.labeled_review_comments:
-            # For "reviewed_file" option, fetch the specific file that this comment applies to
-            relevant_files = {}
-            if file_source == "reviewed_file" and comment.path:
-                try:
-                    content = fetch_repo_file_content(
-                        repo, base_commit, comment.path, tokens, patch_to_review
-                    )
-                    relevant_files[comment.path] = content
-                except Exception as e:
-                    logger.warning(
-                        f"Failed to fetch content for {comment.path}, ignoring it: {e}"
-                    )
-
-            elif file_source == "base_changed_files":
-                relevant_files = changed_files
-
-            elif file_source == "retrieved_base_changed_files":
-                # If file_source is 'retrieved_files', adopt BM25 to retrieve files that the reviewed file is similar to from the repo
-                def preprocess(text):
-                    # Convert text to lowercase, remove punctuation marks, and then segment words into tokens.
-                    text = text.lower()
-                    text = text.translate(str.maketrans("", "", string.punctuation))
-                    return word_tokenize(text)
-
-                try:
-                    retrieved_files = changed_files
-                    # Use BM25 or similar logic to filter files based on the diff_hunk
-                    query = comment.diff_hunk
-                    # Preprocess the query
-                    query_tokens = preprocess(query)
-                    # Use BM25 to rank files based on the query
-                    bm25 = BM25Okapi(
-                        [preprocess(content) for content in retrieved_files.values()]
-                    )
-                    doc_scores = bm25.get_scores(query_tokens)
-                    top_indices = sorted(
-                        range(len(doc_scores)),
-                        key=lambda i: doc_scores[i],
-                        reverse=True,
-                    )[: min(retrieval_max_files, len(retrieved_files))]
-                    file_paths = list(retrieved_files.keys())
-                    # Map the relevant file paths to their contents
-                    for idx in top_indices:
-                        file_path = file_paths[idx]
-                        relevant_files[file_path] = retrieved_files[file_path]
-                except Exception as e:
-                    logger.warning(f"Failed to retrieved content for diff hunk: {e}")
-                    relevant_files = {}
-
-            elif file_source == "retrieved_all_files":
-                if comment.diff_hunk:
-                    if retrieval_output_dir is None:
-                        raise ValueError(
-                            "retrieval_output_dir is required when file_source is 'retrieved_all_files'"
-                        )
-                    relevant_files = fetch_repo_files_content_by_retrieval(
-                        repo=repo,
-                        commit=base_commit,
-                        query=comment.diff_hunk,
-                        retrieval_output_dir=retrieval_output_dir,
-                        tokens=tokens,
-                        max_files=retrieval_max_files,
-                    )
-                else:
-                    relevant_files = {}
-
-            else:
-                relevant_files = {}
+            # Get relevant files using the utility function
+            relevant_files = get_relevant_files(
+                review_comment=comment,
+                file_source=file_source,
+                repo=repo,
+                base_commit=base_commit,
+                patch_to_review=patch_to_review,
+                tokens=tokens,
+                retrieval_max_files=retrieval_max_files,
+                retrieval_output_dir=retrieval_output_dir,
+                changed_files=changed_files,  # Pass pre-computed changed files to avoid re-fetching
+            )
 
             # Format the review comment using the specified template
             review_str = format_review_comment(
@@ -612,43 +554,6 @@ def convert_pr_to_samples(
         samples.append(sample)
 
     return samples
-
-
-def get_changed_files(
-    repo: str,
-    base_commit: str,
-    patch_to_review: str,
-    tokens: list[str] | None = None,
-) -> dict[str, str]:
-    """
-    Get file path and file content using changed files strategy.
-    Changed files are the changed files in `diff(base_commit, commit_to_review)`.
-    """
-    changed_files = {}
-
-    logger.debug(f"Getting changed file paths from {base_commit} to commit_to_review")
-    changed_file_paths = get_changed_file_paths(patch_to_review)
-    logger.debug(f"Changed file paths: {changed_file_paths}")
-
-    # Fetch file contents
-    for file_path in changed_file_paths:
-        try:
-            logger.debug(f"Fetching content for {file_path}")
-            content = fetch_repo_file_content(
-                repo, base_commit, file_path, tokens, patch_to_review
-            )
-            changed_files[file_path] = content
-        except Exception as e:
-            logger.warning(f"Failed to fetch content for {file_path}: {e}")
-            changed_files[file_path] = ""
-
-    # Filter out files without content and return only the files we fetched
-    result = {
-        path: content for path, content in changed_files.items() if content is not None
-    }
-
-    logger.info(f"Retrieved {len(result)} changed files")
-    return result
 
 
 def format_review_comment(

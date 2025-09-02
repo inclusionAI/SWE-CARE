@@ -17,6 +17,9 @@ from swe_care.harness.evaluators.code_review import (
     LLMEvaluator,
     RuleBasedEvaluator,
 )
+from swe_care.harness.evaluators.repo_level import (
+    RepoLevelLLMEvaluator,
+)
 from swe_care.schema.evaluation import (
     CodeReviewEvaluationResult,
     EvaluatorResult,
@@ -35,10 +38,14 @@ class EvaluatorType(str, Enum):
     RULE_BASED_EVALUATOR = "rule_based_evaluator"
     """The rule-based evaluator."""
 
+    REPO_LEVEL_LLM_EVALUATOR = "repo_level_llm_evaluator"
+    """The repo-level LLM evaluator."""
+
 
 _EVALUATOR_MAP: dict[EvaluatorType, type[Evaluator]] = {
     EvaluatorType.LLM_EVALUATOR: LLMEvaluator,
     EvaluatorType.RULE_BASED_EVALUATOR: RuleBasedEvaluator,
+    EvaluatorType.REPO_LEVEL_LLM_EVALUATOR: RepoLevelLLMEvaluator,
 }
 
 
@@ -55,11 +62,15 @@ def load_evaluator(
             f"\nValid types are: {list(_EVALUATOR_MAP.keys())}"
         )
     evaluator_cls = _EVALUATOR_MAP[evaluator_type]
-    if issubclass(evaluator_cls, LLMEvaluator):
+    if issubclass(evaluator_cls, (LLMEvaluator, RepoLevelLLMEvaluator)):
         if model_client is None:
             raise ValueError("LLM model client is required for LLM evaluator")
-        return evaluator_cls(model_client=model_client, **kwargs)
-    return evaluator_cls(**kwargs)
+        evaluator = evaluator_cls(model_client=model_client, **kwargs)
+    else:
+        evaluator = evaluator_cls(**kwargs)
+
+    logger.info(f"Loaded evaluator {evaluator_type} with kwargs: {kwargs}")
+    return evaluator
 
 
 def code_review_eval_instance(
@@ -120,6 +131,7 @@ def code_review_eval(
     model: Optional[str] = None,
     model_provider: Optional[str] = None,
     model_args: Optional[str] = None,
+    evaluator_kwargs: Optional[dict[str, dict[str, Any]]] = None,
     jobs: int = 2,
 ) -> None:
     """
@@ -133,6 +145,7 @@ def code_review_eval(
         model: Model name to use for LLM evaluation (required if using LLM evaluator)
         model_provider: Model provider (required if using LLM evaluator)
         model_args: Comma-separated model arguments
+        evaluator_kwargs: Dict mapping evaluator types to their kwargs
         jobs: Number of parallel jobs to run (default: 2)
     """
     if isinstance(dataset_file, str):
@@ -147,21 +160,34 @@ def code_review_eval(
 
     # Initialize LLM client if needed
     model_client = None
-    if EvaluatorType.LLM_EVALUATOR in evaluator_types:
+    llm_evaluator_types = [
+        EvaluatorType.LLM_EVALUATOR,
+        EvaluatorType.REPO_LEVEL_LLM_EVALUATOR,
+    ]
+    if any(et in evaluator_types for et in llm_evaluator_types):
         if not model or not model_provider:
             raise ValueError("Model and model provider are required for LLM evaluator")
 
         model_kwargs = parse_model_args(model_args)
         model_client = init_llm_client(model, model_provider, **model_kwargs)
-        logger.info(f"Initialized {model_provider} client with model {model}")
+        logger.info(
+            f"Initialized {model_provider} client with model {model} using model arguments: {model_kwargs}"
+        )
 
-    evaluators = [
-        load_evaluator(
+    # Initialize evaluator_kwargs if not provided
+    if evaluator_kwargs is None:
+        evaluator_kwargs = {}
+
+    evaluators = []
+    for evaluator_type in evaluator_types:
+        # Get kwargs for this specific evaluator type
+        kwargs = evaluator_kwargs.get(evaluator_type.value, {})
+        evaluator = load_evaluator(
             evaluator_type,
             model_client=model_client,
+            **kwargs,
         )
-        for evaluator_type in evaluator_types
-    ]
+        evaluators.append(evaluator)
 
     # Create output directory if it doesn't exist
     output_dir.mkdir(parents=True, exist_ok=True)

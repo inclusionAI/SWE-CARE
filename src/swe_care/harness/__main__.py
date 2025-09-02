@@ -1,12 +1,48 @@
 import argparse
 import sys
 from pathlib import Path
+from typing import Any
 
 from loguru import logger
 
 import swe_care.harness.code_review_eval
 from swe_care.harness.code_review_eval import EvaluatorType, code_review_eval
-from swe_care.utils.llm_models import get_available_models_and_providers
+from swe_care.utils.llm_models import (
+    get_available_models_and_providers,
+    parse_model_args,
+)
+
+
+def parse_evaluator_args(evaluator_args_str: str | None) -> dict[str, dict[str, Any]]:
+    """Parse evaluator args string into a dictionary.
+
+    Args:
+        evaluator_args_str: String in format 'evaluator1:arg1=value1,arg2=value2;evaluator2:arg1=value1'
+
+    Returns:
+        Dictionary mapping evaluator types to their kwargs
+    """
+    if not evaluator_args_str:
+        return {}
+
+    result = {}
+
+    # Split by semicolon to get each evaluator's args
+    evaluator_parts = evaluator_args_str.split(";")
+
+    for part in evaluator_parts:
+        if ":" not in part:
+            continue
+
+        evaluator_type, args_part = part.split(":", 1)
+        evaluator_type = evaluator_type.strip()
+
+        # Parse the args part using the existing parse_model_args function
+        kwargs = parse_model_args(args_part)
+        result[evaluator_type] = kwargs
+
+    return result
+
 
 # Mapping of subcommands to their function names
 SUBCOMMAND_MAP = {
@@ -114,6 +150,13 @@ def get_args():
                 help="Comma-separated model arguments for LLM evaluation (e.g., 'temperature=0.7,top_p=0.9')",
             )
             sub_parser.add_argument(
+                "--evaluator-args",
+                type=str,
+                required=False,
+                default=None,
+                help="Evaluator-specific arguments in format 'evaluator1:arg1=value1,arg2=value2;evaluator2:arg1=value1'",
+            )
+            sub_parser.add_argument(
                 "--jobs",
                 type=int,
                 default=2,
@@ -144,6 +187,9 @@ def main():
         # Add specific arguments based on subcommand
         match args.command:
             case "code_review_eval":
+                # Parse evaluator args
+                evaluator_kwargs = parse_evaluator_args(args.evaluator_args)
+
                 function(
                     dataset_file=args.dataset_file,
                     predictions_path=args.predictions_path,
@@ -151,6 +197,7 @@ def main():
                     model=args.model,
                     model_provider=args.model_provider,
                     model_args=args.model_args,
+                    evaluator_kwargs=evaluator_kwargs,
                     jobs=args.jobs,
                     **common_kwargs,
                 )

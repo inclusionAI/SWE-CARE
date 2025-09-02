@@ -335,7 +335,13 @@ You can find more details about the arguments for each script by running `python
 
 The evaluation harness is used to assess model predictions on the code review task. The main script is `src/swe_care/harness/code_review_eval.py`.
 
-### Supported Evaluators and Model Providers for Evaluation
+### Supported Evaluators
+
+1. **LLM Evaluator** (`llm_evaluator`): Evaluates code review quality based on multiple dimensions (functionality, quality, style, documentation).
+2. **Rule-based Evaluator** (`rule_based_evaluator`): Extracts defects from review text and compares them with reference defects.
+3. **Repo-level LLM Evaluator** (`repo_level_llm_evaluator`): Uses LLM to classify review comments as positive or negative based on problem statement and patch context.
+
+### Supported Model Providers for Evaluation
 
 See `python -m swe_care.harness code_review_eval --help` for supported evaluators and LLM model if you want to use LLM-based evaluation.
 
@@ -381,16 +387,41 @@ python -m swe_care.harness code_review_eval \
     --jobs 4
 ```
 
+#### Repo-level LLM Evaluation with File Context
+
+```bash
+export OPENAI_API_KEY=<your_openai_api_key>
+python -m swe_care.harness code_review_eval \
+    --dataset-file "results/code_review_task_instances.jsonl" \
+    --predictions-path "results/predictions/dataset__gpt-4o.jsonl" \
+    --output-dir "./results/evaluation" \
+    --evaluator "repo_level_llm_evaluator" \
+    --model "gpt-4o" \
+    --model-provider "openai" \
+    --evaluator-args "repo_level_llm_evaluator:file_source=retrieved_all_files,retrieval_max_files=10,retrieval_output_dir=./results/retrieval_output" \
+    --jobs 4
+```
+
 ### Parameters
 
 * `--dataset-file`: Path to the original dataset file (CodeReviewTaskInstance objects)
 * `--predictions-path`: Path to the predictions file (CodeReviewPrediction objects)
 * `--output-dir`: Directory where evaluation results will be saved
-* `--evaluator`: One or more evaluator types to use (`llm_evaluator`, `rule_based_evaluator`)
-* `--model`: Model name for LLM evaluation (required if using `llm_evaluator`)
-* `--model-provider`: Model provider for LLM evaluation (required if using `llm_evaluator`)
+* `--evaluator`: One or more evaluator types to use (`llm_evaluator`, `rule_based_evaluator`, `repo_level_llm_evaluator`)
+* `--model`: Model name for LLM evaluation (required if using LLM-based evaluators)
+* `--model-provider`: Model provider for LLM evaluation (required if using LLM-based evaluators)
 * `--model-args`: Comma-separated model arguments for LLM evaluation
+* `--evaluator-args`: Evaluator-specific arguments in format `evaluator1:arg1=value1,arg2=value2;evaluator2:arg1=value1`
 * `--jobs`: Number of parallel threads for evaluation (default: 2)
+
+#### Evaluator-specific Arguments
+
+For `repo_level_llm_evaluator`:
+
+* `file_source`: Source for file content (`none`, `base_changed_files`, `reviewed_file`, `retrieved_base_changed_files`, `retrieved_all_files`)
+* `retrieval_max_files`: Maximum number of files for retrieval (default: 5)
+* `retrieval_output_dir`: Output directory for retrieval operations (required when `file_source` is `retrieved_all_files`)
+* `tokens`: GitHub API tokens (passed automatically from global tokens)
 
 ### Output
 

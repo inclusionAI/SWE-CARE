@@ -1,3 +1,14 @@
+"""
+BM25-based retrieval utilities for code search and file content extraction.
+
+This module provides functionality for retrieving relevant code files using BM25 search,
+managing Git repositories at specific commits, and extracting file contents for analysis.
+
+Inspired and modified from:
+https://github.com/SWE-bench/SWE-bench/blob/main/swebench/inference/make_datasets/bm25_retrieval.py
+
+"""
+
 import ast
 import json
 import os

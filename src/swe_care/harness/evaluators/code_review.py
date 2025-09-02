@@ -2,11 +2,12 @@ import json
 import re
 from typing import Any
 
+from loguru import logger
 from nltk.tokenize import word_tokenize
 from nltk.translate.bleu_score import SmoothingFunction, sentence_bleu
-from unidiff import PatchSet
 
 from swe_care.harness.evaluators import Evaluator
+from swe_care.harness.evaluators.utils import extract_defects_from_review
 from swe_care.schema.dataset import (
     CodeReviewTaskInstance,
     ReferenceReviewComment,
@@ -59,15 +60,38 @@ class LLMEvaluator(Evaluator):
         return True
 
     def _parse_json(self, text: str) -> dict:
-        # Try to find JSON string within triple backticks, assuming there are possibly multiple json markdown string
-        matches = re.finditer(r"```(json)?(.*?)```", text, re.DOTALL)
+        """Parse JSON from LLM response."""
+        # First, try to find JSON string within triple backticks
+        # Handle both ```json and ``` formats
+        json_pattern = r"```(?:json)?\s*\n?(.*?)\n?```"
+        matches = re.findall(json_pattern, text, re.DOTALL | re.MULTILINE)
+
         for match in matches:
             try:
-                return json.loads(match.group(2))
+                cleaned_match = match.strip()
+                if cleaned_match:
+                    return json.loads(cleaned_match)
             except json.JSONDecodeError:
                 continue
 
-        raise ValueError(f"No valid JSON found in LLM response: {text}")
+        # If no backtick-wrapped JSON found, try to extract JSON object directly
+        # Look for content between { and }
+        json_object_pattern = r"\{[^{}]*(?:\{[^{}]*\}[^{}]*)*\}"
+        json_matches = re.findall(json_object_pattern, text, re.DOTALL)
+
+        for match in json_matches:
+            try:
+                return json.loads(match)
+            except json.JSONDecodeError:
+                continue
+
+        # Last resort: try parsing the entire text
+        try:
+            return json.loads(text.strip())
+        except json.JSONDecodeError:
+            # If all else fails, provide more detailed error
+            logger.error(f"Failed to parse JSON from response: {text[:500]}...")
+            raise ValueError("No valid JSON found in LLM response")
 
     def _calculate_total_score(self, evaluation_data: dict) -> dict:
         """Calculate the total score based on the evaluation data.
@@ -163,79 +187,6 @@ class RuleBasedEvaluator(Evaluator):
         """Whether this evaluator requires an input."""
         return False
 
-    def _parse_diff_hunks(diff_text):
-        patch = PatchSet(diff_text)
-        results = []
-
-        for patched_file in patch:
-            old_path = patched_file.path  # 可用 .source_file, .target_file 获取完整路径
-            for hunk in patched_file:
-                hunk_info = {
-                    "file": old_path,
-                    "old_start": hunk.source_start,
-                    "old_lines": hunk.source_length,
-                    "old_end": hunk.source_start + hunk.source_length - 1,
-                    "new_start": hunk.target_start,
-                    "new_lines": hunk.target_length,
-                    "new_end": hunk.target_start + hunk.target_length - 1,
-                }
-                results.append(hunk_info)
-        return results
-
-    def extract_defects_from_review(
-        self, review_text: str, input: CodeReviewTaskInstance
-    ) -> list[ReferenceReviewComment]:
-        """Extract defects from review text that follows the REVIEW_PROMPT format.
-
-        Args:
-            review_text: The code review text containing defects in <defect> tags
-
-        Returns:
-            List of ReferenceReviewComment objects extracted from the review text
-        """
-        defects = []
-
-        # Pattern to match <defect> blocks
-        defect_pattern = r"<defect>\s*(.*?)\s*</defect>"
-        defect_matches = re.findall(defect_pattern, review_text, re.DOTALL)
-
-        for defect_content in defect_matches:
-            # Extract file_path, line, and suggestion from defect content
-            file_path_match = re.search(r"file_path:\s*(.+)", defect_content)
-            line_match = re.search(r"line:\s*(\d+)", defect_content)
-            suggestion_match = re.search(
-                r"suggestion:\s*(.+)", defect_content, re.DOTALL
-            )
-
-            if file_path_match and suggestion_match:
-                file_path = file_path_match.group(1).strip()
-                line_num = int(line_match.group(1)) if line_match else None
-                suggestion = suggestion_match.group(1).strip()
-                # Extract diff hunk based on patch_to_review, file path line number
-                # if the line number falls within a hunk, use that hunk,
-                patch = input.commit_to_review.patch_to_review if input else None
-                diff_hunks = self._parse_diff_hunks(patch) if patch else []
-                diff_hunk = None
-                for hunk in diff_hunks:
-                    if (
-                        hunk["file"] == file_path
-                        and hunk["new_start"] <= line_num <= hunk["new_end"]
-                    ):
-                        diff_hunk = f"@@ -{hunk['old_start']},{hunk['old_lines']} +{hunk['new_start']},{hunk['new_lines']} @@\n"
-                        break
-                defect = ReferenceReviewComment(
-                    text=suggestion,
-                    path=file_path,
-                    diff_hunk=diff_hunk,
-                    line=line_num,
-                    start_line=None,
-                    original_line=None,
-                    original_start_line=None,
-                )
-                defects.append(defect)
-
-        return defects
-
     def _calculate_location_similarity(
         self, pred_defect: ReferenceReviewComment, ref_defect: ReferenceReviewComment
     ) -> float:
@@ -286,6 +237,7 @@ class RuleBasedEvaluator(Evaluator):
                 parse_header(pred_defect.diff_hunk) if pred_defect.diff_hunk else set()
             )
         else:
+            # FIXME: Waht if it is last line?
             # if diff hunk does not exist, create a diff hunk for the five lines above and below the line number.
             pred_hunk_lines = set(range(pred_defect.line - 5, pred_defect.line + 5))
 
@@ -426,9 +378,7 @@ class RuleBasedEvaluator(Evaluator):
             Dictionary containing evaluation metrics
         """
         # Extract predicted defects from review text
-        predicted_defects = self.extract_defects_from_review(
-            prediction.review_text, input
-        )
+        predicted_defects = extract_defects_from_review(prediction.review_text, input)
 
         if not predicted_defects and not reference:
             # Both empty - perfect match
