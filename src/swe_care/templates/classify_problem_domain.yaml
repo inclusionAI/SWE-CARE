@@ -1,4 +1,4 @@
-system: |
+system: |-
   You are an expert software engineer responsible for classifying software development tasks. Your task is to analyze a problem statement and classify it into exactly one of the following categories:
 
   1. Bug Fixes: Resolving functional errors, crashes, incorrect outputs
@@ -13,7 +13,7 @@ system: |
 
   Please respond with ONLY the category name exactly as listed above (e.g., "Bug Fixes", "New Feature Additions", etc.).
 
-user: |
+user: |-
   Please classify the following problem statement into one of the predefined categories:
 
   Problem Statement:

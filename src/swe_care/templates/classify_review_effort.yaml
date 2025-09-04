@@ -1,4 +1,4 @@
-system: |
+system: |-
   You are an experienced software engineer responsible for estimating code review effort. Your task is to estimate how much effort would be required to review a code change on a scale of 1 to 5, where:
 
   1 = Very Low Effort: Simple changes like typo fixes, minor documentation updates, or trivial formatting changes
@@ -16,7 +16,7 @@ system: |
 
   Please respond with ONLY a single number from 1 to 5.
 
-user: |
+user: |-
   Please estimate the review effort (1-5) for the following code change:
 
   **Pull Request Title:**

@@ -1,8 +1,9 @@
 from typing import Any
 
 from loguru import logger
-from tenacity import retry, stop_after_attempt, retry_if_exception_type
+from tenacity import retry, retry_if_exception_type, stop_after_attempt
 
+from swe_care.schema.dataset import ReferenceReviewComment
 from swe_care.utils.llm_models.clients import BaseModelClient
 from swe_care.utils.prompt_loader import load_prompt
 
@@ -176,3 +177,67 @@ def classify_review_effort(
         raise ValueError(
             "Failed to get valid review effort estimate (1-5) after 3 attempts"
         )
+
+
+@retry(
+    stop=stop_after_attempt(3),
+    retry=retry_if_exception_type(InvalidResponseError),
+    reraise=True,
+)
+def classify_relevant_review_comment(
+    client: BaseModelClient, review_comment: ReferenceReviewComment
+) -> bool:
+    """Classify if a review comment is relevant (likely to lead to code changes).
+
+    Args:
+        client: The LLM client to use for classification
+        review_comment: The review comment to classify
+
+    Returns:
+        True if the comment is relevant (likely to lead to code changes),
+        False if irrelevant (unlikely to lead to code changes)
+    """
+
+    # Determine the line number to check for line change detection
+    line_to_check = None
+    if review_comment.original_line is not None:
+        line_to_check = review_comment.original_line
+    elif review_comment.line is not None:
+        line_to_check = review_comment.line
+    elif review_comment.start_line is not None:
+        line_to_check = review_comment.start_line
+    elif review_comment.original_start_line is not None:
+        line_to_check = review_comment.original_start_line
+
+    system_prompt, user_prompt = load_prompt(
+        "classify_relevant_review_comment",
+        comment_text=review_comment.text,
+        diff_hunk=review_comment.diff_hunk,
+        path=review_comment.path,
+        line=line_to_check,
+    )
+
+    messages = [
+        {"role": "system", "content": system_prompt},
+        {"role": "user", "content": user_prompt},
+    ]
+
+    try:
+        response = client.create_completion(messages).strip().lower()
+        if response == "relevant":
+            return True
+        elif response == "irrelevant":
+            return False
+        else:
+            logger.warning(
+                f"Invalid relevance classification response: '{response}' "
+                f"(expected 'relevant' or 'irrelevant')"
+            )
+            raise InvalidResponseError(
+                f"Invalid response: '{response}' (expected 'relevant' or 'irrelevant')"
+            )
+    except Exception as e:
+        if isinstance(e, InvalidResponseError):
+            raise
+        logger.warning(f"Error in classify_relevant_review_comment: {e}")
+        raise InvalidResponseError(f"LLM call failed: {e}")
