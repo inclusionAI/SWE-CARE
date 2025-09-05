@@ -12,9 +12,11 @@ text: |-
   {% for file_path, file_content in files.items() -%}
   [start of {{ file_path }}]
   {% if add_line_numbers -%}
+  {% if file_content -%}
   {% for line in file_content.split('\n') -%}
   {{ "{:4d}".format(loop.index) }} {{ line }}
   {% endfor -%}
+  {% endif -%}
   {% else -%}
   {{ file_content }}
   {% endif -%}
