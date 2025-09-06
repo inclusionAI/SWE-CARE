@@ -75,9 +75,9 @@ Count: {{ instance.reference_review_comments | length }}
 - Path: `{{ c.path }}`
 - Line: {{ c.line if c.line is not none else 'n/a' }}  |  Start line: {{ c.start_line if c.start_line is not none else 'n/a' }}
 - Original line: {{ c.original_line if c.original_line is not none else 'n/a' }}  |  Original start line: {{ c.original_start_line if c.original_start_line is not none else 'n/a' }}
-
 {% endfor %}
-
+{% if schema_md %}
 ---
 
 {{ schema_md }}
+{%- endif -%}

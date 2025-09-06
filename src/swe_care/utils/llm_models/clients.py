@@ -1,3 +1,4 @@
+import json
 import os
 from abc import ABC, abstractmethod
 from typing import Any
@@ -62,6 +63,21 @@ class BaseModelClient(ABC):
         pass
 
     @abstractmethod
+    def create_completion_with_structured_output(
+        self, messages: list[dict[str, str]], json_schema: dict
+    ) -> dict:
+        """Create a completion with structured output using the LLM API.
+
+        Args:
+            messages: List of messages in OpenAI format [{"role": "user", "content": "..."}]
+            json_schema: JSON Schema that defines the expected output structure
+
+        Returns:
+            The generated completion as a dictionary matching the schema
+        """
+        pass
+
+    @abstractmethod
     def count_tokens_from_text(self, text: str) -> int:
         """Count the number of tokens in the text."""
         pass
@@ -100,6 +116,29 @@ class OpenAIClient(BaseModelClient):
             return response.choices[0].message.content
         except Exception as e:
             logger.error(f"Error creating OpenAI completion: {e}")
+            raise e
+
+    def create_completion_with_structured_output(
+        self, messages: list[dict[str, str]], json_schema: dict
+    ) -> dict:
+        """Create a completion with structured output using OpenAI API."""
+        try:
+            response = self.client.chat.completions.create(
+                model=self.model,
+                messages=messages,
+                response_format={
+                    "type": "json_schema",
+                    "json_schema": {
+                        "name": json_schema.get("name", "structured_response"),
+                        "strict": True,
+                        "schema": json_schema,
+                    },
+                },
+                **self.model_kwargs,
+            )
+            return json.loads(response.choices[0].message.content)
+        except Exception as e:
+            logger.error(f"Error creating OpenAI structured completion: {e}")
             raise e
 
     def count_tokens_from_text(self, text: str) -> int:
@@ -256,6 +295,47 @@ class AnthropicClient(BaseModelClient):
             return response.content[0].text
         except Exception as e:
             logger.error(f"Error creating Anthropic completion: {e}")
+            raise e
+
+    def create_completion_with_structured_output(
+        self, messages: list[dict[str, str]], json_schema: dict
+    ) -> dict:
+        """Create a completion with structured output using Anthropic API."""
+        try:
+            # Convert OpenAI format to Anthropic format
+            anthropic_messages, system_message = self._convert_to_anthropic_format(
+                messages
+            )
+
+            kwargs = self.model_kwargs.copy()
+            if system_message:
+                kwargs["system"] = system_message
+
+            # Create a tool definition from the JSON schema
+            tool_name = json_schema.get("name", "record_output")
+            tool = {
+                "name": tool_name,
+                "description": f"Record output using the schema: {json_schema.get('description', 'Structured output')}",
+                "input_schema": json_schema,
+            }
+
+            response = self.client.messages.create(
+                model=self.model,
+                messages=anthropic_messages,
+                max_tokens=kwargs.pop("max_tokens", 4096),
+                tools=[tool],
+                tool_choice={"type": "tool", "name": tool_name},
+                **kwargs,
+            )
+
+            # Extract the tool use result
+            for content in response.content:
+                if content.type == "tool_use" and content.name == tool_name:
+                    return content.input
+
+            raise ValueError("No tool use found in response")
+        except Exception as e:
+            logger.error(f"Error creating Anthropic structured completion: {e}")
             raise e
 
     def count_tokens_from_text(self, text: str) -> int:

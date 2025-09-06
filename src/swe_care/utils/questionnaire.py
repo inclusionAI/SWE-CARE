@@ -3,18 +3,136 @@ from pathlib import Path
 from typing import Any
 
 from jinja2 import Environment, FileSystemLoader
+from loguru import logger
+from tenacity import retry, retry_if_exception_type, stop_after_attempt
+from tqdm import tqdm
 
 from swe_care.schema.dataset import (
     CodeReviewTaskInstance,
 )
+from swe_care.utils.estimate import InvalidResponseError
+from swe_care.utils.llm_models.clients import BaseModelClient
+from swe_care.utils.prompt_loader import load_prompt
 
 
-def load_questionnaire(instance: CodeReviewTaskInstance) -> str:
+def complete_questionnaire(
+    client: BaseModelClient, instance: CodeReviewTaskInstance
+) -> dict[str, Any]:
+    """Complete the code review questionnaire using LLM with structured output.
+
+    Args:
+        client: The LLM client to use for completion
+        instance: The code review task instance
+
+    Returns:
+        A dictionary containing the completed questionnaire responses
+    """
+    # Load the questionnaire context
+    context = load_questionnaire(instance, context_only=True)
+
+    # Load the questionnaire schema
+    schema_path = (
+        Path(__file__).parent.parent
+        / "templates"
+        / "questionnaire"
+        / "questionnaire_schema.json"
+    )
+    with open(schema_path) as f:
+        full_schema = json.load(f)
+
+    # Extract section information
+    sections = {
+        "section1": "Section 1 — Problem Statement and Patch Alignment",
+        "section2": "Section 2 — Review Scope and Comment Coverage",
+        "section3": "Section 3 — Defects Identified in the Patch",
+        "section4": "Section 4 — Difficulty and Review Effort",
+        "section5": "Section 5 — Overall Patch Quality and Risk",
+        "section6": "Section 6 — Dataset Suitability",
+        "section7": "Section 7 — Confidence",
+    }
+
+    results = {}
+
+    # Process each section separately with progress tracking
+    for section_key, section_title in tqdm(
+        sections.items(),
+        desc=f"Processing questionnaire sections for {instance.instance_id}",
+    ):
+        # Create a schema for just this section
+        section_schema = {
+            "$schema": "http://json-schema.org/draft-07/schema#",
+            "name": f"{section_key}_response",
+            "title": f"Response for {section_title}",
+            "type": "object",
+            "properties": {section_key: full_schema["properties"][section_key]},
+            # OpenAI JSON schema response_format requires root objects to disallow
+            # additional properties explicitly.
+            "additionalProperties": False,
+            "required": [section_key],
+        }
+
+        # Create retry wrapper for this section
+        @retry(
+            stop=stop_after_attempt(3),
+            retry=retry_if_exception_type(InvalidResponseError),
+            reraise=True,
+        )
+        def complete_section():
+            # Load prompts from YAML template
+            system_prompt, user_prompt = load_prompt(
+                "questionnaire/llm_respondent",
+                section_title=section_title,
+                context=context,
+            )
+
+            messages = [
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt},
+            ]
+
+            try:
+                response = client.create_completion_with_structured_output(
+                    messages, section_schema
+                )
+
+                # Validate that we got the expected section key
+                if section_key not in response:
+                    raise InvalidResponseError(
+                        f"Response missing expected section key: {section_key}"
+                    )
+
+                return response[section_key]
+
+            except Exception as e:
+                if isinstance(e, InvalidResponseError):
+                    raise
+                logger.warning(f"Error completing {section_key}: {e}")
+                raise InvalidResponseError(f"LLM call failed: {e}")
+
+        # Try to complete the section
+        try:
+            results[section_key] = complete_section()
+        except InvalidResponseError:
+            logger.error(
+                f"Failed to complete {section_key} after 3 attempts, setting to None"
+            )
+            results[section_key] = None
+        except Exception as e:
+            logger.error(f"Unexpected error completing {section_key}: {e}")
+            results[section_key] = None
+
+    return results
+
+
+def load_questionnaire(
+    instance: CodeReviewTaskInstance, context_only: bool = False
+) -> str:
     """
     Render the code review annotation questionnaire template with the provided instance.
 
     Args:
         instance: A CodeReviewTaskInstance dataclass object used as the Jinja2 context under key 'instance'.
+        context_only: If True, only render the context without the schema questions.
 
     Returns:
         Rendered Markdown string for the questionnaire.
@@ -27,24 +145,27 @@ def load_questionnaire(instance: CodeReviewTaskInstance) -> str:
         # Be explicit to help callers catch mismatches early
         raise TypeError("instance must be a CodeReviewTaskInstance")
 
-    template_dir = Path(__file__).parent.parent / "templates"
+    template_dir = Path(__file__).parent.parent / "templates" / "questionnaire"
     template_name = "questionnaire.md.j2"
     template_path = template_dir / "questionnaire.md.j2"
     if not template_path.exists():
         raise FileNotFoundError(f"Template file not found: {template_path}")
 
-    # Load questionnaire schema and render to Markdown content
-    schema_path = (
-        Path(__file__).parent.parent / "templates" / "questionnaire_schema.json"
-    )
-    if not schema_path.exists():
-        raise FileNotFoundError(f"Questionnaire schema file not found: {schema_path}")
+    # Only load and render schema if context_only is False
+    schema_md = ""
+    if not context_only:
+        # Load questionnaire schema and render to Markdown content
+        schema_path = template_dir / "questionnaire_schema.json"
+        if not schema_path.exists():
+            raise FileNotFoundError(
+                f"Questionnaire schema file not found: {schema_path}"
+            )
 
-    schema_obj: dict[str, Any]
-    with open(schema_path) as f:
-        schema_obj = json.load(f)
+        schema_obj: dict[str, Any]
+        with open(schema_path) as f:
+            schema_obj = json.load(f)
 
-    schema_md = _render_questionnaire_schema(schema_obj, instance)
+        schema_md = _render_questionnaire_schema(schema_obj, instance)
 
     jinja_env = Environment(loader=FileSystemLoader(template_dir))
     template = jinja_env.get_template(template_name)

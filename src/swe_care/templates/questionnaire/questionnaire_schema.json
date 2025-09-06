@@ -10,28 +10,28 @@
             "properties": {
                 "q1_1": {
                     "title": "Is the problem statement sufficiently well-specified for reviewing this patch?",
-                    "type": "integer",
+                    "type": "string",
                     "enum": [
-                        0,
-                        1,
-                        2,
-                        3
+                        "0",
+                        "1",
+                        "2",
+                        "3"
                     ],
                     "options": [
                         {
-                            "value": 0,
+                            "value": "0",
                             "label": "Well-specified; clearly indicates what must be reviewed"
                         },
                         {
-                            "value": 1,
+                            "value": "1",
                             "label": "Mostly clear; a few blanks left to infer"
                         },
                         {
-                            "value": 2,
+                            "value": "2",
                             "label": "Vague; notable ambiguity about expected changes"
                         },
                         {
-                            "value": 3,
+                            "value": "3",
                             "label": "Insufficient; cannot reasonably evaluate without more info"
                         }
                     ]
@@ -57,12 +57,14 @@
                             "type": "string"
                         }
                     },
+                    "additionalProperties": false,
                     "required": [
                         "answer",
                         "reason"
                     ]
                 }
             },
+            "additionalProperties": false,
             "required": [
                 "q1_1",
                 "q1_2",
@@ -75,28 +77,28 @@
             "properties": {
                 "q2_1": {
                     "title": "Do the provided reference review comments appropriately cover the patch (scope and correctness)?",
-                    "type": "integer",
+                    "type": "string",
                     "enum": [
-                        0,
-                        1,
-                        2,
-                        3
+                        "0",
+                        "1",
+                        "2",
+                        "3"
                     ],
                     "options": [
                         {
-                            "value": 0,
+                            "value": "0",
                             "label": "Broadly appropriate; would accept most correct reviews"
                         },
                         {
-                            "value": 1,
+                            "value": "1",
                             "label": "Generally good; a few reasonable reviews might differ"
                         },
                         {
-                            "value": 2,
+                            "value": "2",
                             "label": "Some reasonable reviews would be missed or penalized"
                         },
                         {
-                            "value": 3,
+                            "value": "3",
                             "label": "Misaligned; comments focus on details unrelated to the stated problem"
                         }
                     ]
@@ -139,6 +141,7 @@
                                 "type": "string"
                             }
                         },
+                        "additionalProperties": false,
                         "required": [
                             "index",
                             "category",
@@ -156,6 +159,7 @@
                     }
                 }
             },
+            "additionalProperties": false,
             "required": [
                 "q2_1",
                 "q2_2",
@@ -197,6 +201,7 @@
                         "type": "string"
                     }
                 },
+                "additionalProperties": false,
                 "required": [
                     "category",
                     "severity",
@@ -217,8 +222,8 @@
                             "type": "string",
                             "enum": [
                                 "<15 min",
-                                "15 min – 1 hour",
-                                "1–4 hours",
+                                "15 min - 1 hour",
+                                "1-4 hours",
                                 ">4 hours"
                             ]
                         },
@@ -227,43 +232,44 @@
                             "type": "string"
                         }
                     },
+                    "additionalProperties": false,
                     "required": [
                         "time_estimate",
                         "reason"
                     ]
                 },
                 "q4_2": {
-                    "title": "Estimated review effort (1–5)",
+                    "title": "Estimated review effort (1-5)",
                     "type": "object",
                     "properties": {
                         "effort_level": {
-                            "type": "integer",
+                            "type": "string",
                             "enum": [
-                                1,
-                                2,
-                                3,
-                                4,
-                                5
+                                "1",
+                                "2",
+                                "3",
+                                "4",
+                                "5"
                             ],
                             "options": [
                                 {
-                                    "value": 1,
+                                    "value": "1",
                                     "label": "Trivial, almost no cognitive load"
                                 },
                                 {
-                                    "value": 2,
+                                    "value": "2",
                                     "label": "Small effort, localized changes"
                                 },
                                 {
-                                    "value": 3,
+                                    "value": "3",
                                     "label": "Moderate effort, multiple files/concerns"
                                 },
                                 {
-                                    "value": 4,
+                                    "value": "4",
                                     "label": "High effort, complex interactions or risk"
                                 },
                                 {
-                                    "value": 5,
+                                    "value": "5",
                                     "label": "Very high effort, wide impact or intricate logic"
                                 }
                             ]
@@ -272,12 +278,14 @@
                             "type": "string"
                         }
                     },
+                    "additionalProperties": false,
                     "required": [
                         "effort_level",
                         "rationale"
                     ]
                 }
             },
+            "additionalProperties": false,
             "required": [
                 "q4_1",
                 "q4_2"
@@ -303,6 +311,7 @@
                             "type": "string"
                         }
                     },
+                    "additionalProperties": false,
                     "required": [
                         "answer"
                     ]
@@ -324,6 +333,7 @@
                             "type": "string"
                         }
                     },
+                    "additionalProperties": false,
                     "required": [
                         "risk_level",
                         "reason"
@@ -334,6 +344,7 @@
                     "type": "string"
                 }
             },
+            "additionalProperties": false,
             "required": [
                 "q5_1",
                 "q5_2",
@@ -360,6 +371,7 @@
                             "type": "string"
                         }
                     },
+                    "additionalProperties": false,
                     "required": [
                         "answer"
                     ]
@@ -380,11 +392,13 @@
                             "type": "string"
                         }
                     },
+                    "additionalProperties": false,
                     "required": [
                         "answer"
                     ]
                 }
             },
+            "additionalProperties": false,
             "required": [
                 "q6_1",
                 "q6_2"
@@ -401,11 +415,13 @@
                     "maximum": 5
                 }
             },
+            "additionalProperties": false,
             "required": [
                 "q7_1"
             ]
         }
     },
+    "additionalProperties": false,
     "required": [
         "section1",
         "section2",
