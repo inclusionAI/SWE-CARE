@@ -119,7 +119,7 @@ class OpenAIClient(BaseModelClient):
             raise e
 
     def create_completion_with_structured_output(
-        self, messages: list[dict[str, str]], json_schema: dict
+        self, messages: list[dict[str, str]], json_schema: dict, strict: bool = False
     ) -> dict:
         """Create a completion with structured output using OpenAI API."""
         try:
@@ -130,7 +130,7 @@ class OpenAIClient(BaseModelClient):
                     "type": "json_schema",
                     "json_schema": {
                         "name": json_schema.get("name", "structured_response"),
-                        "strict": True,
+                        "strict": strict,
                         "schema": json_schema,
                     },
                 },
