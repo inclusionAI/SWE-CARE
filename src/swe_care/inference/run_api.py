@@ -16,7 +16,13 @@ from swe_care.schema.evaluation import CodeReviewPrediction
 from swe_care.schema.inference import CodeReviewInferenceInstance
 from swe_care.utils.llm_models import init_llm_client, parse_model_args
 from swe_care.utils.llm_models.clients import BaseModelClient
-from swe_care.utils.load import load_code_review_text
+from swe_care.utils.load import load_code_review_predictions, load_code_review_text
+
+
+def sanitize_filename(name: str) -> str:
+    """Sanitize model name for use in filenames."""
+    # Replace forward slashes and other problematic characters
+    return name.replace("/", "_").replace("\\", "_").replace(":", "_")
 
 
 def run_api_instance(
@@ -94,34 +100,30 @@ def run_api(
     logger.info(f"Loading dataset from {dataset_file}")
     instances = load_code_review_text(dataset_file)
 
-    # Define output file
-    output_file = output_dir / f"{dataset_file.stem}__{model}.jsonl"
+    # Define output file (sanitize model name for filesystem)
+    safe_model_name = sanitize_filename(model)
+    output_file = output_dir / f"{dataset_file.stem}__{safe_model_name}.jsonl"
     logger.info(f"Output will be saved to {output_file}")
 
     # Load existing predictions if skip_existing is True
-    existing_predictions = set()
+    existing_prediction_ids = None
     if skip_existing and output_file.exists():
-        logger.info("Loading existing predictions to skip...")
+        logger.info(f"Loading existing predictions from {output_file} to skip...")
         try:
-            with open(output_file, "r") as f:
-                for line in f:
-                    line = line.strip()
-                    if line:
-                        try:
-                            pred = CodeReviewPrediction.from_json(line)
-                            existing_predictions.add(pred.instance_id)
-                        except Exception as e:
-                            logger.warning(f"Could not parse existing prediction: {e}")
+            existing_predictions = load_code_review_predictions(output_file)
+            existing_prediction_ids = {
+                prediction.instance_id for prediction in existing_predictions
+            }
             logger.info(f"Found {len(existing_predictions)} existing predictions")
         except Exception as e:
             logger.warning(f"Could not load existing predictions: {e}")
 
     # Filter out instances that already have predictions
-    if skip_existing:
+    if skip_existing and existing_prediction_ids is not None:
         instances_to_process = [
             instance
             for instance in instances
-            if instance.instance_id not in existing_predictions
+            if instance.instance_id not in existing_prediction_ids
         ]
         logger.info(
             f"Skipping {len(instances) - len(instances_to_process)} instances with existing predictions"

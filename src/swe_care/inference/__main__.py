@@ -114,6 +114,12 @@ def get_args():
                 default=2,
                 help="Number of parallel jobs for multithreaded processing (default: 2)",
             )
+            sub_parser.add_argument(
+                "--skip-existing",
+                action="store_true",
+                default=False,
+                help="Skip existing instances in the output file based on instance_id (default: False)",
+            )
 
         case "run_api":
             sub_parser = argparse.ArgumentParser(
@@ -134,7 +140,6 @@ def get_args():
                 "--model",
                 type=str,
                 required=True,
-                choices=available_models,
                 help=f"Model name to use for inference. Available models: {', '.join(available_models)}",
             )
             sub_parser.add_argument(
@@ -196,6 +201,7 @@ def main():
                     retrieval_output_dir=args.retrieval_output_dir,
                     tokens=args.tokens,
                     jobs=args.jobs,
+                    skip_existing=args.skip_existing,
                     **common_kwargs,
                 )
             case "run_api":

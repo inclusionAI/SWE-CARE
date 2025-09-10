@@ -25,7 +25,7 @@ from swe_care.utils.extract_prs_data import (
     fetch_repo_file_content,
     fetch_repo_files_content_by_retrieval,
 )
-from swe_care.utils.load import load_code_review_dataset
+from swe_care.utils.load import load_code_review_dataset, load_code_review_text
 from swe_care.utils.patch import get_changed_file_paths
 from swe_care.utils.prompt_loader import load_prompt
 
@@ -38,6 +38,7 @@ def create_code_review_text(
     retrieval_output_dir: Path | None = None,
     tokens: list[str] | None = None,
     jobs: int = 2,
+    skip_existing: bool = False,
 ) -> None:
     """
     Generate text datasets from SWE-CARE with specified prompts and context sources.
@@ -50,6 +51,7 @@ def create_code_review_text(
         retrieval_output_dir: Output directory for retrieval operations (required for bm25 and all file_source)
         tokens: GitHub API tokens (optional)
         jobs: Number of parallel jobs for multithreaded processing (default: 2)
+        skip_existing: Skip existing instances in the output file based on instance_id (default: False)
     """
     logger.info(
         f"Starting create_code_review_text with file_source={file_source}, jobs={jobs}"
@@ -92,6 +94,16 @@ def create_code_review_text(
         output_file = output_dir / f"{dataset_file.stem}__{file_source}.jsonl"
     logger.info(f"Will save processed instances to {output_file}")
 
+    # Load existing instances if skip_existing is True
+    existing_instance_ids = None
+    if skip_existing and output_file.exists():
+        logger.info(f"Loading existing instances from {output_file} to skip...")
+        existing_instances = load_code_review_text(output_file)
+        existing_instance_ids = {
+            instance.instance_id for instance in existing_instances
+        }
+        logger.info(f"Found {len(existing_instance_ids)} existing instances to skip")
+
     # File lock for thread-safe writing
     file_lock = Lock()
 
@@ -105,7 +117,23 @@ def create_code_review_text(
         executor_class = ThreadPoolExecutor
         logger.info(f"Using ThreadPoolExecutor with {jobs} threads")
 
-    with open(output_file, "w") as f, executor_class(max_workers=jobs) as executor:
+    # Filter instances to skip existing ones if needed
+    instances_to_process = instances
+    skipped_count = 0
+    if skip_existing and existing_instance_ids is not None:
+        instances_to_process = [
+            inst for inst in instances if inst.instance_id not in existing_instance_ids
+        ]
+        skipped_count = len(instances) - len(instances_to_process)
+        logger.info(f"Skipping {skipped_count} existing instances")
+
+    # Open file in append mode if skip_existing, otherwise write mode
+    file_mode = "a" if skip_existing and output_file.exists() else "w"
+
+    with (
+        open(output_file, file_mode) as f,
+        executor_class(max_workers=jobs) as executor,
+    ):
         # Submit all tasks
         future_to_instance = {
             executor.submit(
@@ -116,11 +144,11 @@ def create_code_review_text(
                 retrieval_output_dir,
                 tokens,
             ): instance
-            for instance in instances
+            for instance in instances_to_process
         }
 
         # Process completed tasks with progress bar
-        with tqdm(total=len(instances), desc="Processing instances") as pbar:
+        with tqdm(total=len(instances_to_process), desc="Processing instances") as pbar:
             for future in as_completed(future_to_instance):
                 instance = future_to_instance[future]
 
@@ -145,6 +173,8 @@ def create_code_review_text(
                 )
 
     logger.info(f"Successfully generated {success_count} text instances")
+    if skip_existing and skipped_count > 0:
+        logger.info(f"Skipped {skipped_count} existing instances")
     logger.info(f"Output saved to {output_file}")
 
 

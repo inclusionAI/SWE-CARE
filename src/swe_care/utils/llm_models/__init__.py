@@ -88,11 +88,11 @@ def init_llm_client(
 
     _, model_list = get_available_models_and_providers()
 
-    if model not in model_list:
-        logger.warning(
-            f"Model {model} not in known models for {model_provider}. "
-            f"Known models: {provider_info['models']}. Proceeding anyway..."
-        )
+    # if model not in model_list:
+    #     logger.warning(
+    #         f"Model {model} not in known models for {model_provider}. "
+    #         f"Known models: {provider_info['models']}. Proceeding anyway..."
+    #     )
 
     client_class = provider_info["client_class"]
     return client_class(model, model_provider, **model_kwargs)

@@ -132,7 +132,6 @@ def get_args():
                 "--model",
                 type=str,
                 required=False,
-                choices=available_models,
                 help=f"Model name to use for LLM evaluation. Available models: {', '.join(available_models)}",
             )
             sub_parser.add_argument(

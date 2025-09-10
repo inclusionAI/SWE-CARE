@@ -50,6 +50,26 @@ Follow these steps to set up the project locally.
     pre-commit install
     ```
 
+## 🚀 Quick Start: Evaluation Pipeline
+
+For a streamlined evaluation workflow, use the bootstrap script in `scripts/run_eval_pipeline.py`:
+
+```bash
+# Set up environment variables
+export OPENAI_API_KEY="your-openai-api-key"
+export LLM_EVALUATOR_OPENAI_API_KEY="your-o3-evaluation-api-key"
+
+# Run the complete pipeline
+python scripts/run_eval_pipeline.py \
+    --dataset-file results/dataset/code_review_task_instances.jsonl \
+    --output-dir results/pipeline_output \
+    --model gpt-4o \
+    --model-provider openai \
+    --file-source oracle
+```
+
+This script automates the entire evaluation process: text generation → inference → evaluation. See [scripts/README.md](scripts/README.md) for detailed usage.
+
 ## 📊 Data Collection
 
 The data collection process involves several steps to gather and process data from GitHub. The main scripts for this process are located in `src/swe_care/collect`.
@@ -274,6 +294,7 @@ The `--file-source` parameter supports different strategies for selecting contex
 * `--retrieval-output-dir`: Directory for retrieval operations and git repositories (required for bm25 and all strategies)
 * `--tokens`: GitHub Personal Access Token(s) for API access
 * `--jobs`: Number of parallel jobs for processing (default: 2). Uses ProcessPoolExecutor for bm25/all strategies for better parallelism
+* `--skip-existing`: Skip existing instances in the output file based on instance_id (default: False). When specified, the tool will append to the existing output file instead of overwriting it
 
 ### 2. Run LLM Inference
 

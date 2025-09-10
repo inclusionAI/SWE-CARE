@@ -210,11 +210,14 @@ class RuleBasedEvaluator(Evaluator):
                 parse_header(pred_defect.diff_hunk) if pred_defect.diff_hunk else set()
             )
         else:
-            # FIXME: What if it is the last line?
-            # if diff hunk does not exist, create a diff hunk for the five lines above and below the line number.
-            pred_hunk_lines = set(
-                range(max(1, pred_defect.line - 5), pred_defect.line + 5)
-            )
+            if pred_defect.line is None:
+                pred_hunk_lines = set()
+            else:
+                # FIXME: What if it is the last line?
+                # if diff hunk does not exist, create a diff hunk for the five lines above and below the line number.
+                pred_hunk_lines = set(
+                    range(max(1, pred_defect.line - 5), pred_defect.line + 5)
+                )
 
         ref_hunk_lines = (
             parse_header(ref_defect.diff_hunk) if ref_defect.diff_hunk else set()
