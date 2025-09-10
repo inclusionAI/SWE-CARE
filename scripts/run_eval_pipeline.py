@@ -20,6 +20,7 @@ from pathlib import Path
 from loguru import logger
 
 from swe_care.inference.run_api import sanitize_filename
+from swe_care.utils.llm_models import get_available_models_and_providers
 
 
 def setup_logging(output_dir: Path, timestamp: str):
@@ -363,25 +364,29 @@ Example usage:
         required=True,
         help="Directory to save all pipeline outputs",
     )
+
+    available_providers, available_models = get_available_models_and_providers()
+
     parser.add_argument(
         "--model",
         type=str,
         required=True,
-        help="Model name to use for inference (e.g., gpt-4o, claude-3-5-sonnet-20241022)",
+        help=f"Model name to use for inference. Available models: {', '.join(available_models)}",
     )
     parser.add_argument(
         "--model-provider",
         type=str,
         required=True,
-        choices=["openai", "anthropic", "deepseek", "qwen"],
-        help="Model provider",
+        choices=available_providers,
+        default="openai" if "openai" in available_providers else None,
+        help=f"Model provider. Available providers: {', '.join(available_providers)}",
     )
-
-    # Optional arguments
     parser.add_argument(
         "--model-args",
         type=str,
-        help="Comma-separated model arguments (e.g., 'temperature=0.7,top_p=0.9')",
+        required=False,
+        default=None,
+        help="List of model arguments separated by commas (e.g., 'top_p=0.95,temperature=0.70')",
     )
     parser.add_argument(
         "--file-source",

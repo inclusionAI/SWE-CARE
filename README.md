@@ -342,7 +342,7 @@ If you are using an API provider other than the provided ones, you can run infer
 
 * `--dataset-file`: Path to the text dataset file (CodeReviewInferenceInstance objects)
 * `--model`: Model name to use for inference
-* `--model-provider`: Model provider (openai, anthropic, deepseek, qwen)
+* `--model-provider`: Model provider (openai, anthropic, deepseek, qwen, moonshot, gemini)
 * `--model-args`: Comma-separated model arguments (e.g., `temperature=0.7,top_p=0.9`)
 * `--output-dir`: Directory to save generated predictions
 * `--jobs`: Number of parallel threads for inference (default: 2)

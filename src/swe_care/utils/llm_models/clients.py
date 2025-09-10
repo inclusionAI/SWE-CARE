@@ -105,7 +105,9 @@ class OpenAIClient(BaseModelClient):
         if not api_key:
             raise ValueError("OPENAI_API_KEY environment variable not set")
 
-        self.client = openai.OpenAI(api_key=api_key, max_retries=self.max_retries)
+        self.client: openai.OpenAI = openai.OpenAI(
+            api_key=api_key, max_retries=self.max_retries
+        )
 
     def create_completion(self, messages: list[dict[str, str]]) -> str:
         """Create a completion using OpenAI API."""
@@ -230,6 +232,41 @@ class QwenClient(OpenAIClient):
             return super().create_completion(messages)
 
 
+class MoonshotClient(OpenAIClient):
+    """DeepSeek API client."""
+
+    def __init__(
+        self,
+        model: str,
+        model_provider: str,
+        max_retries: int = DEFAULT_MAX_RETRIES,
+        **model_kwargs: Any,
+    ):
+        super().__init__(model, model_provider, max_retries, **model_kwargs)
+
+        self.client = openai.OpenAI.copy(
+            self.client, base_url="https://api.moonshot.cn/v1"
+        )
+
+
+class GeminiClient(OpenAIClient):
+    """Gemini API client using Google's OpenAI-compatible API."""
+
+    def __init__(
+        self,
+        model: str,
+        model_provider: str,
+        max_retries: int = DEFAULT_MAX_RETRIES,
+        **model_kwargs: Any,
+    ):
+        super().__init__(model, model_provider, max_retries, **model_kwargs)
+
+        self.client = openai.OpenAI.copy(
+            self.client,
+            base_url="https://generativelanguage.googleapis.com/v1beta/openai/",
+        )
+
+
 class AnthropicClient(BaseModelClient):
     """Anthropic API client."""
 
@@ -247,7 +284,9 @@ class AnthropicClient(BaseModelClient):
         if not api_key:
             raise ValueError("ANTHROPIC_API_KEY environment variable not set")
 
-        self.client = anthropic.Anthropic(api_key=api_key, max_retries=self.max_retries)
+        self.client: anthropic.Anthropic = anthropic.Anthropic(
+            api_key=api_key, max_retries=self.max_retries
+        )
 
     def _convert_to_anthropic_format(
         self, messages: list[dict[str, str]]

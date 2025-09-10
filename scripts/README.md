@@ -71,7 +71,7 @@ python scripts/run_eval_pipeline.py \
 - `--dataset-file`: Path to the input SWE-CARE dataset file
 - `--output-dir`: Directory to save all pipeline outputs
 - `--model`: Model name to use for inference
-- `--model-provider`: Model provider (openai, anthropic, deepseek, qwen)
+- `--model-provider`: Model provider (openai, anthropic, deepseek, qwen, moonshot, gemini)
 
 **Optional:**
 

@@ -6,6 +6,8 @@ from swe_care.utils.llm_models.clients import (
     AnthropicClient,
     BaseModelClient,
     DeepSeekClient,
+    GeminiClient,
+    MoonshotClient,
     OpenAIClient,
     QwenClient,
 )
@@ -19,11 +21,12 @@ LLM_CLIENT_MAP = {
             {"name": "gpt-4o-mini", "max_input_tokens": 128000},
             {"name": "gpt-4.1", "max_input_tokens": 1047576},
             {"name": "gpt-4.5-preview", "max_input_tokens": 128000},
+            {"name": "gpt-5", "max_input_tokens": 128000},
+            {"name": "gpt-5-chat", "max_input_tokens": 128000},
             {"name": "o1", "max_input_tokens": 200000},
             {"name": "o1-mini", "max_input_tokens": 128000},
             {"name": "o3", "max_input_tokens": 200000},
             {"name": "o3-mini", "max_input_tokens": 200000},
-            {"name": "gemini-2.5-pro-preview-06-05", "max_input_tokens": 1048576},
         ],
     },
     "anthropic": {
@@ -48,6 +51,19 @@ LLM_CLIENT_MAP = {
             {"name": "qwen3-32b", "max_input_tokens": 128000},
             {"name": "qwen3-30b-a3b", "max_input_tokens": 128000},
             {"name": "qwen3-235b-a22b", "max_input_tokens": 128000},
+        ],
+    },
+    "moonshot": {
+        "client_class": MoonshotClient,
+        "models": [
+            {"name": "kimi-k2-0711-preview", "max_input_tokens": 131072},
+            {"name": "kimi-k2-0905-preview", "max_input_tokens": 131072},
+        ],
+    },
+    "gemini": {
+        "client_class": GeminiClient,
+        "models": [
+            {"name": "gemini-2.5-pro", "max_input_tokens": 1048576},
         ],
     },
 }
