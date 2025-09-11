@@ -151,16 +151,10 @@ class OpenAIClient(BaseModelClient):
             # Fall back to o200k_base encoding if model not found
             encoding = tiktoken.get_encoding("o200k_base")
 
-        return len(encoding.encode(text))
+        return len(encoding.encode(text, disallowed_special=()))
 
     def count_tokens_from_messages(self, messages: list[dict[str, str]]) -> int:
         """Count the number of tokens in the messages using tiktoken."""
-        try:
-            encoding = tiktoken.encoding_for_model(self.model)
-        except KeyError:
-            # Fall back to o200k_base encoding if model not found
-            encoding = tiktoken.get_encoding("o200k_base")
-
         tokens_per_message = 3
         tokens_per_name = 1
 
@@ -168,7 +162,7 @@ class OpenAIClient(BaseModelClient):
         for message in messages:
             num_tokens += tokens_per_message
             for key, value in message.items():
-                num_tokens += len(encoding.encode(value))
+                num_tokens += self.count_tokens_from_text(value)
                 if key == "name":
                     num_tokens += tokens_per_name
         num_tokens += 3  # every reply is primed with <|start|>assistant<|message|>

@@ -307,9 +307,7 @@ def run_api_instance(
                 # Check for generic BadRequestError patterns in error message
                 elif (
                     "bad request" in error_message
-                    or "context length" in error_message
-                    or "token" in error_message
-                    or "too long" in error_message
+                    or "token too long" in error_message
                     or "invalid_parameter_error" in error_message
                 ):
                     is_bad_request = True
