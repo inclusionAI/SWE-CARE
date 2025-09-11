@@ -170,24 +170,24 @@ def reduce_text_to_fit_context(
         if len(content) > 100:
             # Truncate from the right
             new_length = int(len(content) * 0.8)
-            truncated_content = content[:new_length] + "\n... (content truncated)"
-
-            # Update the code block with truncated content
-            new_code_block = (
-                code_block[: last_file["content_start"]]
-                + truncated_content
-                + code_block[last_file["content_end"] :]
-            )
-
-            # Update file section
-            last_file["content"] = truncated_content
-            code_block = new_code_block
+            last_file["content"] = content[:new_length] + "\n... (content truncated)"
         else:
             # Remove this file section entirely if it's too small to truncate further
-            code_block = (
-                code_block[: last_file["start"]] + code_block[last_file["end"] :]
-            )
             file_sections.pop()
+
+        # Rebuild the entire code block from the updated file sections
+        new_code_block = ""
+        for section in file_sections:
+            new_code_block += f"[start of {section['path']}]\n"
+            new_code_block += section["content"]
+            if not section["content"].endswith("\n"):
+                new_code_block += "\n"
+            new_code_block += f"[end of {section['path']}]"
+            if section != file_sections[-1]:  # Add newline between sections
+                new_code_block += "\n"
+
+        # Update code_block
+        code_block = new_code_block
 
         # Recount tokens
         if code_block.strip():
