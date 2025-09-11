@@ -161,7 +161,13 @@ def reduce_text_to_fit_context(
         return system_message + "\n" + new_user_message
 
     # Truncate file contents from right to left
-    while current_tokens > target_tokens and file_sections:
+    max_truncation_retries = 10
+    truncation_attempts = 0
+    while (
+        current_tokens > target_tokens
+        and file_sections
+        and truncation_attempts < max_truncation_retries
+    ):
         # Get the rightmost file section
         last_file = file_sections[-1]
 
@@ -202,10 +208,14 @@ def reduce_text_to_fit_context(
             {"role": "user", "content": new_user_message},
         ]
         current_tokens = model_client.count_tokens_from_messages(new_messages)
+        truncation_attempts += 1
 
         logger.debug(f"After truncation: {current_tokens} tokens")
 
     if current_tokens > target_tokens:
+        if truncation_attempts >= max_truncation_retries:
+            # Still try
+            return system_message + "\n" + new_user_message
         raise ValueError(
             f"Unable to reduce text to fit context window. "
             f"Current: {current_tokens}, Target: {target_tokens}"
@@ -264,7 +274,14 @@ def run_api_instance(
         )  # 50% threshold until we give up
 
         # Retry with progressively smaller context windows
+        max_reduction_retries = 10
+        reduction_attempts = 0
         while current_max_tokens >= min_max_tokens:
+            if reduction_attempts >= max_reduction_retries:
+                logger.error(
+                    f"Failed to process instance {instance.instance_id}: exceeded max retries (10) for context reduction"
+                )
+                return None
             try:
                 # Try to reduce text if needed
                 reduced_text = reduce_text_to_fit_context(
@@ -320,6 +337,7 @@ def run_api_instance(
                         f"Reducing max tokens from {current_max_tokens} to {new_max_tokens}"
                     )
                     current_max_tokens = new_max_tokens
+                    reduction_attempts += 1
 
                     if current_max_tokens < min_max_tokens:
                         logger.error(
