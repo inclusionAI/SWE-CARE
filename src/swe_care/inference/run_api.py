@@ -214,8 +214,9 @@ def reduce_text_to_fit_context(
 
     if current_tokens > target_tokens:
         if truncation_attempts >= max_truncation_retries:
-            # Still try
-            return system_message + "\n" + new_user_message
+            raise ValueError(
+                "Exceeded maximum truncation retries (10) while reducing text to fit context"
+            )
         raise ValueError(
             f"Unable to reduce text to fit context window. "
             f"Current: {current_tokens}, Target: {target_tokens}"

@@ -3,9 +3,7 @@ name = "swe-care"
 version = "0.1.0"
 description = "Add your description here"
 readme = "README.md"
-authors = [
-    { name = "友恒", email = "zhengxunjin.zx@antgroup.com" }
-]
+authors = []
 requires-python = ">=3.10"
 dependencies = [
     "anthropic>=0.55.0",
