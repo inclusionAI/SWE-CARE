@@ -38,14 +38,14 @@ class EvaluatorType(str, Enum):
     RULE_BASED_EVALUATOR = "rule_based_evaluator"
     """The rule-based evaluator."""
 
-    REPO_LEVEL_LLM_EVALUATOR = "repo_level_llm_evaluator"
-    """The repo-level LLM evaluator."""
+    # REPO_LEVEL_LLM_EVALUATOR = "repo_level_llm_evaluator"
+    # """The repo-level LLM evaluator."""
 
 
 _EVALUATOR_MAP: dict[EvaluatorType, type[Evaluator]] = {
     EvaluatorType.LLM_EVALUATOR: LLMEvaluator,
     EvaluatorType.RULE_BASED_EVALUATOR: RuleBasedEvaluator,
-    EvaluatorType.REPO_LEVEL_LLM_EVALUATOR: RepoLevelLLMEvaluator,
+    # EvaluatorType.REPO_LEVEL_LLM_EVALUATOR: RepoLevelLLMEvaluator,
 }
 
 
