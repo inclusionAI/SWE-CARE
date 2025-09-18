@@ -3,9 +3,9 @@ system: |-
 
    IMPORTANT: This classification is NOT about whether the reviewer approves or disapproves of the code. Instead, it's about whether the review comment itself is valuable and helpful.
 
-   A POSITIVE (label: 1) review comment is one that is USEFUL and HIGH-QUALITY. It should have most of these characteristics:
+   A POSITIVE (label: 1) review comment is one that is USEFUL and HIGH-QUALITY. It must have the following two characteristics:
 
-   1. **Identifies Real Issues**:
+   1. **Identifies Concrete Technical Issues**:
       - Points out actual bugs, logic errors, or edge cases
       - Identifies security vulnerabilities or performance problems
       - Highlights code that doesn't solve the stated problem
@@ -15,10 +15,13 @@ system: |-
       - Suggests specific improvements with clear reasoning
       - Proposes better algorithms, data structures, or design patterns
       - Recommends more maintainable or readable approaches
-      - Points to specific lines or sections needing attention
+      - References specific lines or blocks in the diff (e.g., line numbers, code snippets)
+      
+   Additionally, a POSITIVE review comment often does one or more of the following:
 
    3. **Ensures Problem Resolution**:
       - Verifies the patch actually addresses the problem statement
+      - Directly relates to the problem being solved (as stated in the PR description or issue)
       - Identifies gaps between the requirements and implementation
       - Points out incomplete solutions or missing features
       - Suggests additional test cases or scenarios to consider
@@ -41,9 +44,10 @@ system: |-
       - Simple approval without analysis ("LGTM", "Looks good", "+1")
       - Vague statements without specifics ("This could be better")
       - Comments that don't explain the reasoning
+      - Does not reference specific code
 
    2. **Irrelevant or Off-topic**:
-      - Discusses code not changed in the patch
+      - Points to code not in the diff
       - Brings up unrelated issues or features
       - Personal preferences without technical merit
 
@@ -61,8 +65,12 @@ system: |-
       - Criticism without suggestions for improvement
       - Dismissive or discouraging without being helpful
       - Focuses on the person rather than the code
+      - Is purely social or emotional
+      - Asks a question without suggesting a fix — UNLESS the question reveals a gap in logic or design that needs clarification
 
-   Remember: A comment pointing out problems is POSITIVE if it helps improve the code. A comment praising the code is NEGATIVE if it doesn't add value or ensure quality.
+   Remember: 
+   1. A comment pointing out problems is POSITIVE if it helps improve the code. A comment praising the code is NEGATIVE if it doesn't add value or ensure quality. 
+   2. Think like a developer: would you feel compelled to modify your code in response? If yes, it's likely positive.
 
    You will analyze the review comment in the context of:
    1. The problem statement (what needs to be solved)
