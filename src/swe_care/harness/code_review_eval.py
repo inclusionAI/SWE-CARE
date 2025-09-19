@@ -162,7 +162,7 @@ def code_review_eval(
     model_client = None
     llm_evaluator_types = [
         EvaluatorType.LLM_EVALUATOR,
-        EvaluatorType.REPO_LEVEL_LLM_EVALUATOR,
+        # EvaluatorType.REPO_LEVEL_LLM_EVALUATOR,
     ]
     if any(et in evaluator_types for et in llm_evaluator_types):
         if not model or not model_provider:
