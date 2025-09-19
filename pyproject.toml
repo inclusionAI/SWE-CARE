@@ -23,6 +23,8 @@ dependencies = [
     "pyserini>=1.2.0",
     "httpx[socks]>=0.28.1",
     "chardet>=5.2.0",
+    "jinja2>=3.1.6",
+    "scikit-learn>=1.7.2"
 ]
 
 [project.scripts]
