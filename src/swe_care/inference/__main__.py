@@ -76,10 +76,11 @@ def get_args():
                 description=SUBCOMMAND_MAP[subcommand]["help"],
             )
             sub_parser.add_argument(
-                "--dataset-file",
-                type=Path,
-                required=True,
-                help="Path to the input SWE-CARE dataset file",
+                "--dataset-name-or-path",
+                type=str,
+                required=False,
+                default="inclusionAI/SWE-CARE",
+                help="Path to the input SWE-CARE dataset file, or Hugging Face dataset name (default: inclusionAI/SWE-CARE)",
             )
             sub_parser.add_argument(
                 "--file-source",
@@ -201,7 +202,7 @@ def main():
         match args.command:
             case "create_code_review_text":
                 function(
-                    dataset_file=args.dataset_file,
+                    dataset_name_or_path=args.dataset_name_or_path,
                     file_source=args.file_source,
                     k=args.k,
                     retrieval_output_dir=args.retrieval_output_dir,

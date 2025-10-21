@@ -71,7 +71,7 @@ def save_pipeline_config(output_dir: Path, config: dict, timestamp: str):
 
 
 def run_create_code_review_text(
-    dataset_file: Path,
+    dataset_name_or_path: Path | str,
     output_dir: Path,
     file_source: str,
     k: int | None,
@@ -92,8 +92,8 @@ def run_create_code_review_text(
     args = [
         "swe_care.inference",
         "create_code_review_text",
-        "--dataset-file",
-        str(dataset_file),
+        "--dataset-name-or-path",
+        str(dataset_name_or_path),
         "--output-dir",
         str(text_output_dir),
         "--file-source",
@@ -125,12 +125,23 @@ def run_create_code_review_text(
     # Determine output file name based on file_source
     # Based on create_code_review_text.py
     skeleton_suffix = "__skeleton" if use_skeleton else ""
-    if k is not None and file_source in ["bm25", "all"]:
-        output_filename = (
-            f"{dataset_file.stem}__{file_source}__k{k}{skeleton_suffix}.jsonl"
-        )
+
+    # Determine dataset name for filename
+    if isinstance(dataset_name_or_path, str):
+        path = Path(dataset_name_or_path)
     else:
-        output_filename = f"{dataset_file.stem}__{file_source}{skeleton_suffix}.jsonl"
+        path = dataset_name_or_path
+
+    if path.exists():
+        dataset_name = path.stem
+    else:
+        # Use the last part of the Hugging Face dataset name
+        dataset_name = str(dataset_name_or_path).split("/")[-1]
+
+    if k is not None and file_source in ["bm25", "all"]:
+        output_filename = f"{dataset_name}__{file_source}__k{k}{skeleton_suffix}.jsonl"
+    else:
+        output_filename = f"{dataset_name}__{file_source}{skeleton_suffix}.jsonl"
     output_file = text_output_dir / output_filename
 
     if not output_file.exists():
@@ -200,7 +211,7 @@ def run_inference(
 
 
 def run_evaluation(
-    dataset_file: Path,
+    dataset_name_or_path: Path | str,
     predictions_file: Path,
     output_dir: Path,
     jobs: int,
@@ -236,8 +247,8 @@ def run_evaluation(
     args = [
         "swe_care.harness",
         "code_review_eval",
-        "--dataset-file",
-        str(dataset_file),
+        "--dataset-name-or-path",
+        str(dataset_name_or_path),
         "--predictions-path",
         str(predictions_file),
         "--output-dir",
@@ -327,9 +338,16 @@ Environment variables:
     LLM_EVALUATOR_OPENAI_BASE_URL   - Custom OpenAI-compatible API endpoint for evaluation
 
 Example usage:
-  # Basic usage with no file context
+  # Basic usage with no file context (using default Hugging Face dataset)
   python scripts/run_eval_pipeline.py \\
-    --dataset-file results/dataset/code_review_task_instances.jsonl \\
+    --output-dir results/pipeline_output \\
+    --model gpt-4o \\
+    --model-provider openai \\
+    --file-source none
+
+  # With local dataset file
+  python scripts/run_eval_pipeline.py \\
+    --dataset-name-or-path results/dataset/code_review_task_instances.jsonl \\
     --output-dir results/pipeline_output \\
     --model gpt-4o \\
     --model-provider openai \\
@@ -337,7 +355,7 @@ Example usage:
 
   # With oracle file source and custom model args
   python scripts/run_eval_pipeline.py \\
-    --dataset-file results/dataset/code_review_task_instances.jsonl \\
+    --dataset-name-or-path results/dataset/code_review_task_instances.jsonl \\
     --output-dir results/pipeline_output \\
     --model claude-3-5-sonnet-20241022 \\
     --model-provider anthropic \\
@@ -347,7 +365,7 @@ Example usage:
 
   # With BM25 retrieval
   python scripts/run_eval_pipeline.py \\
-    --dataset-file results/dataset/code_review_task_instances.jsonl \\
+    --dataset-name-or-path results/dataset/code_review_task_instances.jsonl \\
     --output-dir results/pipeline_output \\
     --model "models/gemini-2.5-pro" \\
     --model-provider openai \\
@@ -359,10 +377,11 @@ Example usage:
 
     # Required arguments
     parser.add_argument(
-        "--dataset-file",
-        type=Path,
-        required=True,
-        help="Path to the input SWE-CARE dataset file (code_review_task_instances.jsonl)",
+        "--dataset-name-or-path",
+        type=str,
+        required=False,
+        default="inclusionAI/SWE-CARE",
+        help="Path to the input SWE-CARE dataset file or Hugging Face dataset name (default: inclusionAI/SWE-CARE)",
     )
     parser.add_argument(
         "--output-dir",
@@ -457,7 +476,7 @@ Example usage:
 
     logger.info("Starting SWE-CARE evaluation pipeline")
     logger.info(f"Pipeline timestamp: {timestamp_str}")
-    logger.info(f"Dataset: {args.dataset_file}")
+    logger.info(f"Dataset: {args.dataset_name_or_path}")
     logger.info(f"Output directory: {args.output_dir}")
     logger.info(f"Model: {args.model} ({args.model_provider})")
     logger.info(f"File source: {args.file_source}")
@@ -468,7 +487,7 @@ Example usage:
     # Save configuration
     config = {
         "timestamp": pipeline_start_time.isoformat(),
-        "dataset_file": str(args.dataset_file),
+        "dataset_name_or_path": str(args.dataset_name_or_path),
         "output_dir": str(args.output_dir),
         "model": args.model,
         "model_provider": args.model_provider,
@@ -492,7 +511,7 @@ Example usage:
     try:
         # Step 1: Generate text dataset
         text_dataset_file = run_create_code_review_text(
-            dataset_file=args.dataset_file,
+            dataset_name_or_path=args.dataset_name_or_path,
             output_dir=args.output_dir,
             file_source=args.file_source,
             k=args.k,
@@ -518,7 +537,7 @@ Example usage:
         eval_start_time = datetime.now()
         safe_model_name = sanitize_filename(args.model)
         evaluation_file = run_evaluation(
-            dataset_file=args.dataset_file,
+            dataset_name_or_path=args.dataset_name_or_path,
             predictions_file=predictions_file,
             output_dir=args.output_dir,
             jobs=args.jobs,

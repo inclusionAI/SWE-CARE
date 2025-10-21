@@ -205,11 +205,11 @@ def calculate_metadata_scores(
 
 
 def generate_report(
-    dataset_file: Path, eval_output_dir: Path, report_output_file: Path
+    dataset_name_or_path: Path | str, eval_output_dir: Path, report_output_file: Path
 ) -> None:
     """Generate comprehensive evaluation report."""
-    logger.info(f"Loading dataset from {dataset_file}")
-    dataset_instances = load_code_review_dataset(dataset_file)
+    logger.info(f"Loading dataset from {dataset_name_or_path}")
+    dataset_instances = load_code_review_dataset(dataset_name_or_path)
     total_instances = len(dataset_instances)
     logger.info(f"Loaded {total_instances} dataset instances")
 
@@ -219,7 +219,7 @@ def generate_report(
     # Build report structure
     report = {
         "metadata": {
-            "dataset_file": str(dataset_file),
+            "dataset_name_or_path": str(dataset_name_or_path),
             "eval_output_dir": str(eval_output_dir),
             "total_instances": total_instances,
             "generation_timestamp": datetime.now().isoformat(),
@@ -341,7 +341,7 @@ def main():
         epilog="""
 Example usage:
   python scripts/eval_report.py \\
-    --dataset-file results/dataset/code_review_task_instances.jsonl \\
+    --dataset-name-or-path results/dataset/code_review_task_instances.jsonl \\
     --eval-output-dir results/pipeline_output/evaluation \\
     --report-output-file results/evaluation_report.json
 
@@ -355,10 +355,11 @@ The script will:
     )
 
     parser.add_argument(
-        "--dataset-file",
-        type=Path,
-        required=True,
-        help="Path to the dataset file (code_review_task_instances.jsonl)",
+        "--dataset-name-or-path",
+        type=str,
+        required=False,
+        default="inclusionAI/SWE-CARE",
+        help="Path to the dataset file or Hugging Face dataset name (default: inclusionAI/SWE-CARE)",
     )
     parser.add_argument(
         "--eval-output-dir",
@@ -375,18 +376,13 @@ The script will:
 
     args = parser.parse_args()
 
-    # Validate inputs
-    if not args.dataset_file.exists():
-        logger.error(f"Dataset file not found: {args.dataset_file}")
-        return
-
     if not args.eval_output_dir.exists():
         logger.error(f"Evaluation output directory not found: {args.eval_output_dir}")
         return
 
     # Generate report
     generate_report(
-        dataset_file=args.dataset_file,
+        dataset_name_or_path=args.dataset_name_or_path,
         eval_output_dir=args.eval_output_dir,
         report_output_file=args.report_output_file,
     )

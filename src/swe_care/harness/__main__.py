@@ -106,10 +106,11 @@ def get_args():
                 description=SUBCOMMAND_MAP[subcommand]["help"],
             )
             sub_parser.add_argument(
-                "--dataset-file",
-                type=Path,
-                required=True,
-                help="Path to the dataset file (code_review_task_instances.jsonl)",
+                "--dataset-name-or-path",
+                type=str,
+                required=False,
+                default="inclusionAI/SWE-CARE",
+                help="Path to the dataset file or Hugging Face dataset name (default: inclusionAI/SWE-CARE)",
             )
             sub_parser.add_argument(
                 "--predictions-path",
@@ -190,7 +191,7 @@ def main():
                 evaluator_kwargs = parse_evaluator_args(args.evaluator_args)
 
                 function(
-                    dataset_file=args.dataset_file,
+                    dataset_name_or_path=args.dataset_name_or_path,
                     predictions_path=args.predictions_path,
                     evaluator_types=args.evaluator,
                     model=args.model,

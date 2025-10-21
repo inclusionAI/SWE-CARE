@@ -31,9 +31,9 @@ from swe_care.utils.prompt_loader import load_prompt
 
 
 def create_code_review_text(
-    dataset_file: Path | str,
     output_dir: Path | str,
     file_source: Literal["none", "oracle", "bm25", "all"],
+    dataset_name_or_path: Path | str = "inclusionAI/SWE-CARE",
     k: int | None = None,
     retrieval_output_dir: Path | None = None,
     tokens: list[str] | None = None,
@@ -45,9 +45,9 @@ def create_code_review_text(
     Generate text datasets from SWE-CARE with specified prompts and context sources.
 
     Args:
-        dataset_file: Path to the input SWE-CARE dataset
         output_dir: Directory to save the generated text dataset
         file_source: Source strategy for files - 'none', 'oracle', 'bm25', or 'all'
+        dataset_name_or_path: Path to the input SWE-CARE dataset file, or Hugging Face dataset name
         k: Maximum number of files to use for retrieval
         retrieval_output_dir: Output directory for retrieval operations (required for bm25 and all file_source)
         tokens: GitHub API tokens (optional)
@@ -68,11 +68,14 @@ def create_code_review_text(
         if k is None:
             raise ValueError(f"--k is required when --file-source is '{file_source}'")
 
-    if isinstance(dataset_file, str):
-        dataset_file = Path(dataset_file)
+    # Convert string to Path and check if it's a file path or dataset name
+    if isinstance(dataset_name_or_path, str):
+        dataset_path = Path(dataset_name_or_path)
+    else:
+        dataset_path = dataset_name_or_path
 
-    if not dataset_file.exists():
-        raise FileNotFoundError(f"Dataset file not found: {dataset_file}")
+    # Determine if it's a file path or a Hugging Face dataset name
+    is_file_path = dataset_path.exists()
 
     if isinstance(output_dir, str):
         output_dir = Path(output_dir)
@@ -80,10 +83,10 @@ def create_code_review_text(
     # Create output directory
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    logger.info(f"Loading dataset from {dataset_file}")
+    logger.info(f"Loading dataset from {dataset_name_or_path}")
 
     # Load the dataset
-    instances = load_code_review_dataset(dataset_file)
+    instances = load_code_review_dataset(dataset_name_or_path)
 
     # Process dataset and generate text
     success_count = 0
@@ -91,12 +94,17 @@ def create_code_review_text(
 
     # Create output file and prepare for continuous writing
     suffix = "__skeleton" if use_skeleton else ""
-    if k is not None and file_source in ["bm25", "all"]:
-        output_file = (
-            output_dir / f"{dataset_file.stem}__{file_source}__k{k}{suffix}.jsonl"
-        )
+    # Determine the dataset name for output file naming
+    if is_file_path:
+        dataset_name = dataset_path.stem
     else:
-        output_file = output_dir / f"{dataset_file.stem}__{file_source}{suffix}.jsonl"
+        # Use the last part of the Hugging Face dataset name (e.g., "SWE-CARE" from "inclusionAI/SWE-CARE")
+        dataset_name = str(dataset_name_or_path).split("/")[-1]
+
+    if k is not None and file_source in ["bm25", "all"]:
+        output_file = output_dir / f"{dataset_name}__{file_source}__k{k}{suffix}.jsonl"
+    else:
+        output_file = output_dir / f"{dataset_name}__{file_source}{suffix}.jsonl"
     logger.info(f"Will save processed instances to {output_file}")
 
     # Load existing instances if skip_existing is True

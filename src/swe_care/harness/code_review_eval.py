@@ -124,10 +124,10 @@ def code_review_eval_instance(
 
 
 def code_review_eval(
-    dataset_file: Path | str,
     predictions_path: Path | str,
     output_dir: Path | str,
     evaluator_types: list[EvaluatorType],
+    dataset_name_or_path: Path | str = "inclusionAI/SWE-CARE",
     model: Optional[str] = None,
     model_provider: Optional[str] = None,
     model_args: Optional[str] = None,
@@ -138,24 +138,22 @@ def code_review_eval(
     Run evaluation on code review predictions.
 
     Args:
-        dataset_file: Path to the dataset file (code_review_task_instances.jsonl)
         predictions_path: Path to predictions file or directory containing predictions
         output_dir: Directory where the final_report.json will be saved
         evaluator_types: List of evaluator types to use
+        dataset_name_or_path: Path to the dataset file or Hugging Face dataset name (default: inclusionAI/SWE-CARE)
         model: Model name to use for LLM evaluation (required if using LLM evaluator)
         model_provider: Model provider (required if using LLM evaluator)
         model_args: Comma-separated model arguments
         evaluator_kwargs: Dict mapping evaluator types to their kwargs
         jobs: Number of parallel jobs to run (default: 2)
     """
-    if isinstance(dataset_file, str):
-        dataset_file = Path(dataset_file)
     if isinstance(predictions_path, str):
         predictions_path = Path(predictions_path)
     if isinstance(output_dir, str):
         output_dir = Path(output_dir)
 
-    instances = load_code_review_dataset(dataset_file)
+    instances = load_code_review_dataset(dataset_name_or_path)
     predictions = load_code_review_predictions(predictions_path)
 
     # Initialize LLM client if needed

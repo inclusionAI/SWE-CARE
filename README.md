@@ -56,9 +56,16 @@ For a streamlined evaluation workflow, use the bootstrap script in `scripts/run_
 export OPENAI_API_KEY="your-openai-api-key"
 export LLM_EVALUATOR_OPENAI_API_KEY="your-o3-evaluation-api-key"
 
-# Run the complete pipeline
+# Run the complete pipeline (uses default Hugging Face dataset)
 python scripts/run_eval_pipeline.py \
-    --dataset-file results/dataset/code_review_task_instances.jsonl \
+    --output-dir results/pipeline_output \
+    --model gpt-4o \
+    --model-provider openai \
+    --file-source oracle
+
+# Run with local dataset file
+python scripts/run_eval_pipeline.py \
+    --dataset-name-or-path results/dataset/code_review_task_instances.jsonl \
     --output-dir results/pipeline_output \
     --model gpt-4o \
     --model-provider openai \
@@ -66,7 +73,7 @@ python scripts/run_eval_pipeline.py \
 
 # Use skeleton stubs for Python files (optional)
 python scripts/run_eval_pipeline.py \
-    --dataset-file results/dataset/code_review_task_instances.jsonl \
+    --dataset-name-or-path results/dataset/code_review_task_instances.jsonl \
     --output-dir results/pipeline_output \
     --model gpt-4o \
     --model-provider openai \
@@ -85,7 +92,12 @@ After running evaluations, you can generate comprehensive analysis reports:
 ```bash
 # Generate evaluation report from pipeline results
 python scripts/eval_report.py \
-    --dataset-file results/dataset/code_review_task_instances.jsonl \
+    --dataset-name-or-path results/dataset/code_review_task_instances.jsonl \
+    --eval-output-dir results/pipeline_output/evaluation \
+    --report-output-file results/evaluation_report.json
+
+# Or use default Hugging Face dataset
+python scripts/eval_report.py \
     --eval-output-dir results/pipeline_output/evaluation \
     --report-output-file results/evaluation_report.json
 ```
@@ -275,22 +287,27 @@ The inference module provides two main functionalities: generating text datasets
 Before running evaluation, you can generate text datasets from the collected SWE-CARE data with different context strategies. This creates datasets in the format required for LLM evaluation.
 
 ```bash
-# Example with no file context
+# Example with no file context (using default Hugging Face dataset)
 python -m swe_care.inference create_code_review_text \
-    --dataset-file "results/dataset/code_review_task_instances.jsonl" \
+    --output-dir "results/code_review_text" \
+    --file-source "none"
+
+# Example with local dataset file
+python -m swe_care.inference create_code_review_text \
+    --dataset-name-or-path "results/dataset/code_review_task_instances.jsonl" \
     --output-dir "results/code_review_text" \
     --file-source "none"
 
 # Example with oracle file source
 python -m swe_care.inference create_code_review_text \
-    --dataset-file "results/dataset/code_review_task_instances.jsonl" \
+    --dataset-name-or-path "results/dataset/code_review_task_instances.jsonl" \
     --output-dir "results/code_review_text" \
     --file-source "oracle" \
     --tokens "your_github_pat"
 
 # Example with BM25 retrieval
 python -m swe_care.inference create_code_review_text \
-    --dataset-file "results/dataset/code_review_task_instances.jsonl" \
+    --dataset-name-or-path "results/dataset/code_review_task_instances.jsonl" \
     --output-dir "results/code_review_text" \
     --file-source "bm25" \
     --k 10 \
@@ -300,7 +317,7 @@ python -m swe_care.inference create_code_review_text \
 
 # Example with all files
 python -m swe_care.inference create_code_review_text \
-    --dataset-file "results/dataset/code_review_task_instances.jsonl" \
+    --dataset-name-or-path "results/dataset/code_review_task_instances.jsonl" \
     --output-dir "results/code_review_text" \
     --file-source "all" \
     --k 20 \
@@ -404,7 +421,17 @@ See `python -m swe_care.harness code_review_eval --help` for supported evaluator
 ```bash
 export OPENAI_API_KEY=<your_openai_api_key>
 python -m swe_care.harness code_review_eval \
-    --dataset-file "results/code_review_task_instances.jsonl" \
+    --dataset-name-or-path "results/code_review_task_instances.jsonl" \
+    --predictions-path "results/predictions/dataset__gpt-4o.jsonl" \
+    --output-dir "./results/evaluation" \
+    --evaluator "llm_evaluator" \
+    --model "gpt-4o" \
+    --model-provider "openai" \
+    --model-args "temperature=0.0" \
+    --jobs 4
+
+# Or use default Hugging Face dataset
+python -m swe_care.harness code_review_eval \
     --predictions-path "results/predictions/dataset__gpt-4o.jsonl" \
     --output-dir "./results/evaluation" \
     --evaluator "llm_evaluator" \
@@ -418,7 +445,7 @@ python -m swe_care.harness code_review_eval \
 
 ```bash
 python -m swe_care.harness code_review_eval \
-    --dataset-file "results/code_review_task_instances.jsonl" \
+    --dataset-name-or-path "results/code_review_task_instances.jsonl" \
     --predictions-path "results/predictions/dataset__gpt-4o.jsonl" \
     --output-dir "./results/evaluation" \
     --evaluator "rule_based_evaluator" \
@@ -430,7 +457,7 @@ python -m swe_care.harness code_review_eval \
 ```bash
 export OPENAI_API_KEY=<your_openai_api_key>
 python -m swe_care.harness code_review_eval \
-    --dataset-file "results/code_review_task_instances.jsonl" \
+    --dataset-name-or-path "results/code_review_task_instances.jsonl" \
     --predictions-path "results/predictions/dataset__gpt-4o.jsonl" \
     --output-dir "./results/evaluation" \
     --evaluator "llm_evaluator" "rule_based_evaluator" \
@@ -441,7 +468,7 @@ python -m swe_care.harness code_review_eval \
 
 ### Parameters
 
-* `--dataset-file`: Path to the original dataset file (CodeReviewTaskInstance objects)
+* `--dataset-name-or-path`: Path to the original dataset file or Hugging Face dataset name (default: inclusionAI/SWE-CARE)
 * `--predictions-path`: Path to the predictions file (CodeReviewPrediction objects)
 * `--output-dir`: Directory where evaluation results will be saved
 * `--evaluator`: One or more evaluator types to use (`llm_evaluator`, `rule_based_evaluator`)

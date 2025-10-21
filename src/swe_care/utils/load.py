@@ -1,34 +1,80 @@
 from pathlib import Path
 
+from datasets import load_dataset
 from loguru import logger
 
 from swe_care.schema.dataset import CodeReviewTaskInstance
-from swe_care.schema.evaluation import CodeReviewPrediction, CodeReviewEvaluationResult
+from swe_care.schema.evaluation import CodeReviewEvaluationResult, CodeReviewPrediction
 from swe_care.schema.inference import CodeReviewInferenceInstance
 
 
-def load_code_review_dataset(dataset_file: Path | str) -> list[CodeReviewTaskInstance]:
-    """Load the code review dataset instances from the JSONL file."""
-    if isinstance(dataset_file, str):
-        dataset_file = Path(dataset_file)
-    logger.info("Loading dataset instances...")
+def load_code_review_dataset(
+    dataset_name_or_path: Path | str = "inclusionAI/SWE-CARE",
+) -> list[CodeReviewTaskInstance]:
+    """Load the code review dataset instances from a JSONL file or Hugging Face dataset.
 
-    if not dataset_file.exists():
-        raise FileNotFoundError(f"Dataset file not found: {dataset_file}")
+    Args:
+        dataset_name_or_path: Either a file path to a local JSONL file, or a Hugging Face dataset name.
+                             Defaults to "inclusionAI/SWE-CARE".
 
-    dataset_instances: list[CodeReviewTaskInstance] = []
+    Returns:
+        List of CodeReviewTaskInstance objects
 
-    with open(dataset_file, "r") as f:
-        for line_num, line in enumerate(f, 1):
+    Raises:
+        FileNotFoundError: If a file path is provided but the file doesn't exist
+        Exception: If there's an error parsing the file or loading from Hugging Face
+    """
+    # Check if dataset_name_or_path is a file path
+    if isinstance(dataset_name_or_path, str):
+        path = Path(dataset_name_or_path)
+    else:
+        path = dataset_name_or_path
+
+    # If it's an existing file, load from file
+    if path.exists():
+        logger.info("Loading dataset instances from file...")
+
+        dataset_instances: list[CodeReviewTaskInstance] = []
+
+        with open(path, "r") as f:
+            for line_num, line in enumerate(f, 1):
+                try:
+                    instance = CodeReviewTaskInstance.from_json(line.strip())
+                    dataset_instances.append(instance)
+                except Exception as e:
+                    logger.error(f"Error processing line {line_num}: {e}")
+                    raise e
+
+        logger.success(f"Loaded {len(dataset_instances)} dataset instances from file")
+        return dataset_instances
+
+    # Otherwise, load from Hugging Face
+    else:
+        logger.info(f"Loading dataset from Hugging Face: {dataset_name_or_path}")
+
+        # Load the test split from Hugging Face
+        dataset = load_dataset(
+            str(dataset_name_or_path), split="test", revision="0.2.0"
+        )
+
+        # Convert Hugging Face dataset to list of CodeReviewTaskInstance
+        dataset_instances: list[CodeReviewTaskInstance] = []
+
+        logger.info("Processing test split")
+        for idx, item in enumerate(dataset):
             try:
-                instance = CodeReviewTaskInstance.from_json(line.strip())
+                # Convert the Hugging Face dataset item to CodeReviewTaskInstance
+                # Using from_dict method provided by dataclass_json
+                instance = CodeReviewTaskInstance.from_dict(item)
                 dataset_instances.append(instance)
             except Exception as e:
-                logger.error(f"Error processing line {line_num}: {e}")
+                logger.error(f"Error converting item {idx} in test split: {e}")
                 raise e
 
-    logger.success(f"Loaded {len(dataset_instances)} dataset instances")
-    return dataset_instances
+        logger.success(
+            f"Loaded {len(dataset_instances)} dataset instances from Hugging Face test split"
+        )
+        return dataset_instances
 
 
 def load_code_review_predictions(

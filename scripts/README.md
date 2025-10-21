@@ -30,8 +30,16 @@ export LLM_EVALUATOR_OPENAI_BASE_URL="https://your-custom-o3-endpoint"
 Basic usage with no file context:
 
 ```bash
+# Using default Hugging Face dataset
 python scripts/run_eval_pipeline.py \
-    --dataset-file results/dataset/code_review_task_instances.jsonl \
+    --output-dir results/pipeline_output \
+    --model gpt-4o \
+    --model-provider openai \
+    --file-source none
+
+# Using local dataset file
+python scripts/run_eval_pipeline.py \
+    --dataset-name-or-path results/dataset/code_review_task_instances.jsonl \
     --output-dir results/pipeline_output \
     --model gpt-4o \
     --model-provider openai \
@@ -42,7 +50,7 @@ With oracle file source and custom model args:
 
 ```bash
 python scripts/run_eval_pipeline.py \
-    --dataset-file results/dataset/code_review_task_instances.jsonl \
+    --dataset-name-or-path results/dataset/code_review_task_instances.jsonl \
     --output-dir results/pipeline_output \
     --model claude-3-5-sonnet-20241022 \
     --model-provider anthropic \
@@ -55,7 +63,7 @@ With BM25 retrieval:
 
 ```bash
 python scripts/run_eval_pipeline.py \
-    --dataset-file results/dataset/code_review_task_instances.jsonl \
+    --dataset-name-or-path results/dataset/code_review_task_instances.jsonl \
     --output-dir results/pipeline_output \
     --model "models/gemini-2.5-pro" \
     --model-provider openai \
@@ -68,7 +76,7 @@ Using Tree-sitter skeletons for Python files (works with any file-source):
 
 ```bash
 python scripts/run_eval_pipeline.py \
-    --dataset-file results/dataset/code_review_task_instances.jsonl \
+    --dataset-name-or-path results/dataset/code_review_task_instances.jsonl \
     --output-dir results/pipeline_output \
     --model gpt-4o \
     --model-provider openai \
@@ -80,13 +88,13 @@ python scripts/run_eval_pipeline.py \
 
 **Required:**
 
-- `--dataset-file`: Path to the input SWE-CARE dataset file
 - `--output-dir`: Directory to save all pipeline outputs
 - `--model`: Model name to use for inference
 - `--model-provider`: Model provider (openai, anthropic, deepseek, qwen, moonshot, gemini)
 
 **Optional:**
 
+- `--dataset-name-or-path`: Path to the input SWE-CARE dataset file or Hugging Face dataset name (default: inclusionAI/SWE-CARE)
 - `--model-args`: Comma-separated model arguments (e.g., 'temperature=0.7,top_p=0.9')
 - `--file-source`: Source strategy for files (none, oracle, bm25, all)
 - `--k`: Maximum number of files to use (required for bm25/all)
@@ -145,8 +153,14 @@ Ensure you have run the evaluation pipeline first using `run_eval_pipeline.py`.
 Basic usage:
 
 ```bash
+# Using local dataset file
 python scripts/eval_report.py \
-    --dataset-file results/dataset/code_review_task_instances.jsonl \
+    --dataset-name-or-path results/dataset/code_review_task_instances.jsonl \
+    --eval-output-dir results/pipeline_output/evaluation \
+    --report-output-file results/evaluation_report.json
+
+# Using default Hugging Face dataset
+python scripts/eval_report.py \
     --eval-output-dir results/pipeline_output/evaluation \
     --report-output-file results/evaluation_report.json
 ```
@@ -155,9 +169,12 @@ python scripts/eval_report.py \
 
 **Required:**
 
-- `--dataset-file`: Path to the dataset file containing CodeReviewTaskInstance objects
 - `--eval-output-dir`: Directory containing evaluation results (organized by model)
 - `--report-output-file`: Path for the output JSON report file
+
+**Optional:**
+
+- `--dataset-name-or-path`: Path to the dataset file or Hugging Face dataset name (default: inclusionAI/SWE-CARE)
 
 ### Notes
 
