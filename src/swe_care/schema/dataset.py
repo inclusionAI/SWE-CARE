@@ -1,5 +1,4 @@
 from dataclasses import dataclass
-from typing import Any
 
 from dataclasses_json import dataclass_json
 
@@ -12,42 +11,6 @@ class ResolvedIssue:
     number: int
     title: str
     body: str
-
-
-@dataclass_json
-@dataclass
-class IssueResolvingTaskMetadata:
-    """Schema for metadata instances."""
-
-    problem_domain: str | None
-    """The problem domain"""
-    difficulty: str | None
-    """The task difficulty of the pull request"""
-
-
-@dataclass_json
-@dataclass
-class IssueResolvingTaskInstance:
-    """Schema for Issue Resolving task instances."""
-
-    instance_id: str
-    repo: str
-    language: str
-    pull_number: int
-    title: str
-    body: str
-    created_at: str
-    problem_statement: str
-    hints_text: str
-    resolved_issues: list[ResolvedIssue]
-    base_commit: str
-    patch: str
-    test_patch: str
-    env_setup_config: dict[str, Any]
-    FAIL_TO_PASS: list[str]
-    PASS_TO_PASS: list[str]
-    version: str
-    metadata: IssueResolvingTaskMetadata
 
 
 @dataclass_json
