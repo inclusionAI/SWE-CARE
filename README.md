@@ -54,7 +54,7 @@ For a streamlined evaluation workflow, use the bootstrap script in `scripts/run_
 ```bash
 # Set up environment variables
 export OPENAI_API_KEY="your-openai-api-key"
-export LLM_EVALUATOR_OPENAI_API_KEY="your-o3-evaluation-api-key"
+export LLM_EVALUATOR_OPENAI_API_KEY="your-evaluation-api-key"
 
 # Run the complete pipeline (uses default Hugging Face dataset)
 python scripts/run_eval_pipeline.py \
@@ -83,7 +83,7 @@ python scripts/run_eval_pipeline.py \
     --use-skeleton
 ```
 
-This script automates the entire evaluation process: text generation → inference → evaluation. See [scripts/README.md](scripts/README.md) for detailed usage.
+This script automates the entire evaluation process: text generation → inference → evaluation. The LLM evaluator defaults to OpenAI `o3` (override with `--evaluator-model`). See [scripts/README.md](scripts/README.md) for detailed usage.
 
 ### Analysis and Reporting
 

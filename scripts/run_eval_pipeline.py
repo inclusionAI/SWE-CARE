@@ -5,7 +5,7 @@ Bootstrap script for running the complete SWE-CARE evaluation pipeline.
 This script automates the following steps:
 1. Generate text datasets from collected SWE-CARE data
 2. Run LLM inference on code review tasks
-3. Evaluate model predictions using LLM evaluator (fixed to OpenAI o3)
+3. Evaluate model predictions using LLM evaluator (default: OpenAI o3)
 """
 
 import argparse
@@ -34,7 +34,7 @@ def validate_environment():
     """Validate required environment variables are set."""
     required_vars = {
         "OPENAI_API_KEY": "OpenAI API key for model inference",
-        "LLM_EVALUATOR_OPENAI_API_KEY": "OpenAI API key for LLM evaluation (o3)",
+        "LLM_EVALUATOR_OPENAI_API_KEY": "OpenAI API key for LLM evaluation",
     }
 
     missing_vars = []
@@ -59,6 +59,13 @@ def validate_environment():
     for var, desc in optional_vars.items():
         if os.environ.get(var):
             logger.info(f"✓ {var} is set ({desc})")
+
+
+def get_llm_evaluator_model_args(evaluator_model: str) -> str:
+    evaluator_model_normalized = evaluator_model.strip()
+    if evaluator_model_normalized.lower() == "o3":
+        return "temperature=1"
+    return "temperature=0"
 
 
 def save_pipeline_config(output_dir: Path, config: dict, timestamp: str):
@@ -214,11 +221,12 @@ def run_evaluation(
     dataset_name_or_path: Path | str,
     predictions_file: Path,
     output_dir: Path,
+    evaluator_model: str,
     jobs: int,
     eval_start_time: datetime,
     safe_model_name: str,
 ) -> Path:
-    """Run evaluation using LLM evaluator (fixed to o3)."""
+    """Run evaluation using LLM evaluator."""
     logger.info("=" * 80)
     logger.info("Step 3: Running LLM evaluation")
     logger.info("=" * 80)
@@ -239,11 +247,12 @@ def run_evaluation(
         os.environ["OPENAI_BASE_URL"] = os.environ["LLM_EVALUATOR_OPENAI_BASE_URL"]
     else:
         # If no specific evaluator base URL is set, remove any existing base URL
-        # to ensure o3 uses the default OpenAI endpoint
+        # to ensure the evaluator uses the default OpenAI endpoint
         if "OPENAI_BASE_URL" in os.environ:
             del os.environ["OPENAI_BASE_URL"]
 
     # Build command arguments
+    evaluator_model_args = get_llm_evaluator_model_args(evaluator_model)
     args = [
         "swe_care.harness",
         "code_review_eval",
@@ -257,17 +266,19 @@ def run_evaluation(
         "rule_based_evaluator",
         "llm_evaluator",
         "--model",
-        "o3",
+        evaluator_model,
         "--model-provider",
         "openai",
         "--model-args",
-        "temperature=1",
+        evaluator_model_args,
         "--jobs",
         str(jobs),
     ]
 
     logger.info(f"Running command: {' '.join(args)}")
-    logger.info("Using o3 model for LLM evaluation with temperature=1")
+    logger.info(
+        f"Using {evaluator_model} model for LLM evaluation with {evaluator_model_args}"
+    )
 
     try:
         # Run the module
@@ -329,7 +340,7 @@ def main():
 Environment variables:
   Required:
     OPENAI_API_KEY                  - OpenAI API key for model inference
-    LLM_EVALUATOR_OPENAI_API_KEY    - OpenAI API key for LLM evaluation (o3)
+    LLM_EVALUATOR_OPENAI_API_KEY    - OpenAI API key for LLM evaluation
   
   Optional:
     ANTHROPIC_API_KEY               - Anthropic API key (if using Claude models)
@@ -414,6 +425,13 @@ Example usage:
         help="List of model arguments separated by commas (e.g., 'top_p=0.95,temperature=0.70')",
     )
     parser.add_argument(
+        "--evaluator-model",
+        type=str,
+        required=False,
+        default="o3",
+        help="Model name to use for LLM evaluation (OpenAI; default: o3)",
+    )
+    parser.add_argument(
         "--file-source",
         type=str,
         choices=["none", "oracle", "bm25", "all"],
@@ -479,12 +497,14 @@ Example usage:
     logger.info(f"Dataset: {args.dataset_name_or_path}")
     logger.info(f"Output directory: {args.output_dir}")
     logger.info(f"Model: {args.model} ({args.model_provider})")
+    logger.info(f"Evaluator model: {args.evaluator_model} (openai)")
     logger.info(f"File source: {args.file_source}")
 
     # Validate environment
     validate_environment()
 
     # Save configuration
+    evaluator_model_args = get_llm_evaluator_model_args(args.evaluator_model)
     config = {
         "timestamp": pipeline_start_time.isoformat(),
         "dataset_name_or_path": str(args.dataset_name_or_path),
@@ -501,9 +521,9 @@ Example usage:
         "jobs": args.jobs,
         "skip_existing": args.skip_existing,
         "llm_evaluator": {
-            "model": "o3",
+            "model": args.evaluator_model,
             "model_provider": "openai",
-            "model_args": "temperature=1",
+            "model_args": evaluator_model_args,
         },
     }
     config_file = save_pipeline_config(args.output_dir, config, timestamp_str)
@@ -540,6 +560,7 @@ Example usage:
             dataset_name_or_path=args.dataset_name_or_path,
             predictions_file=predictions_file,
             output_dir=args.output_dir,
+            evaluator_model=args.evaluator_model,
             jobs=args.jobs,
             eval_start_time=eval_start_time,
             safe_model_name=safe_model_name,

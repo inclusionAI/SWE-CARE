@@ -8,7 +8,7 @@ A bootstrap script that runs the complete evaluation pipeline:
 
 1. **Generate text datasets** from collected SWE-CARE data
 2. **Run LLM inference** on code review tasks  
-3. **Evaluate predictions** using LLM evaluator (fixed to OpenAI o3)
+3. **Evaluate predictions** using LLM evaluator (default: OpenAI o3)
 
 ### Prerequisites
 
@@ -17,12 +17,12 @@ Set up the required environment variables:
 ```bash
 # Required
 export OPENAI_API_KEY="your-openai-api-key"
-export LLM_EVALUATOR_OPENAI_API_KEY="your-o3-evaluation-api-key"
+export LLM_EVALUATOR_OPENAI_API_KEY="your-evaluation-api-key"
 
 # Optional
 export ANTHROPIC_API_KEY="your-anthropic-api-key"
 export OPENAI_BASE_URL="https://your-custom-openai-endpoint"
-export LLM_EVALUATOR_OPENAI_BASE_URL="https://your-custom-o3-endpoint"
+export LLM_EVALUATOR_OPENAI_BASE_URL="https://your-custom-eval-endpoint"
 ```
 
 ### Usage
@@ -96,6 +96,7 @@ python scripts/run_eval_pipeline.py \
 
 - `--dataset-name-or-path`: Path to the input SWE-CARE dataset file or Hugging Face dataset name (default: inclusionAI/SWE-CARE)
 - `--model-args`: Comma-separated model arguments (e.g., 'temperature=0.7,top_p=0.9')
+- `--evaluator-model`: Model name to use for LLM evaluation (default: o3)
 - `--file-source`: Source strategy for files (none, oracle, bm25, all)
 - `--k`: Maximum number of files to use (required for bm25/all)
 - `--retrieval-output-dir`: Output directory for retrieval operations (required for bm25/all)
@@ -128,7 +129,7 @@ The script creates the following directory structure:
 
 - The script automatically handles model names with slashes (e.g., `models/gemini-2.5-pro`)
 - Model predictions and evaluation results are organized in subdirectories by model name for better organization
-- LLM evaluation is fixed to use OpenAI o3 model with `temperature=1`
+- LLM evaluation uses `temperature=1` for `--evaluator-model o3` (required) and `temperature=0` for other evaluator models
 - Use separate API keys for inference and evaluation via environment variables
 - All intermediate results are saved for debugging and analysis
 - The pipeline configuration and logs are timestamped for reproducibility
