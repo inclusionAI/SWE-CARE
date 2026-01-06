@@ -184,3 +184,24 @@ python scripts/eval_report.py \
 - Filename pattern must match: `{dataset}__<file_source>__<model>_report.jsonl` (legacy: `_report_YYYYMMDD_HHMMSS.jsonl`)
 - For bm25 settings: `{dataset}__bm25__k<N>__<model>_report.jsonl` (legacy: `_report_YYYYMMDD_HHMMSS.jsonl`)
 - All scores are averaged including zeros for missing instances to ensure fair comparison
+
+## `eval_benchmark.py`
+
+Post-process evaluation outputs:
+
+- (Optional) Merge reward-model scores into existing evaluation JSONLs
+- Group results across evaluator models into `<eval output dir>/all`
+- Write a unified report to `<eval output dir>/../report_all.json`
+
+```bash
+python scripts/eval_benchmark.py --eval-output-dir results/exp/evaluation
+python scripts/eval_benchmark.py --eval-output-dir results/exp/evaluation --reward-model-scores-file results/exp/reward_model_scores/scores.jsonl
+```
+
+## `print_eval_report_markdown_tables.py`
+
+Print markdown tables from an `eval_report.py` JSON report (e.g., `report_all.json`):
+
+```bash
+python scripts/print_eval_report_markdown_tables.py results/exp/report_all.json
+```
