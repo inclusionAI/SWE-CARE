@@ -16,6 +16,7 @@ from __future__ import annotations
 import argparse
 import json
 import math
+import statistics
 from pathlib import Path
 from typing import Any, Iterable
 
@@ -70,7 +71,9 @@ def _percent(value: float | None) -> float:
     return float(value or 0.0) * 100.0
 
 
-def _format_number(value: float) -> str:
+def _format_number(value: float, std: float | None = None) -> str:
+    if std is not None:
+        return f"{value:.2f} ± {std:.2f}"
     return f"{value:.2f}"
 
 
@@ -101,6 +104,27 @@ def _rule_based_score_percent(evaluator_scores: dict[str, Any]) -> float:
 
 def _comprehensive_score_percent(setting: dict[str, Any]) -> float:
     return _percent(setting.get("average_score"))
+
+
+def _compute_std_rows(
+    all_numeric_rows: list[list[list[float]]],
+) -> list[list[float]]:
+    """Compute per-cell std dev across multiple reports.
+
+    *all_numeric_rows* is a list (one per report) of numeric_rows
+    (list-of-rows, each row a list-of-floats).  Returns a matrix of the
+    same shape with the population std dev for each cell.
+    """
+    n_rows = len(all_numeric_rows[0])
+    n_cols = len(all_numeric_rows[0][0]) if n_rows else 0
+    std_rows: list[list[float]] = []
+    for row_idx in range(n_rows):
+        row_stds: list[float] = []
+        for col_idx in range(n_cols):
+            values = [rpt[row_idx][col_idx] for rpt in all_numeric_rows]
+            row_stds.append(statistics.pstdev(values))
+        std_rows.append(row_stds)
+    return std_rows
 
 
 def _collect_models(report: dict[str, Any]) -> list[str]:
@@ -140,21 +164,10 @@ def _render_markdown_table(headers: list[str], rows: list[list[str]]) -> str:
     return "\n".join(lines)
 
 
-def _table_performance(report: dict[str, Any], setting: str = "oracle") -> str:
-    headers = [
-        "LLM",
-        "Reward Model",
-        "LLM-as-a-judge",
-        "Model-based Score",
-        "Location",
-        "Semantics",
-        "Actionable Suggestion Matching",
-        "Rule-based Score",
-        "Comprehensive Score",
-    ]
+def _extract_performance_rows(
+    report: dict[str, Any], model_names: list[str], setting: str
+) -> list[list[float]]:
     numeric_rows: list[list[float]] = []
-    model_names = _collect_models(report)
-
     for model in model_names:
         setting_data = report["model_results"][model]["settings"].get(setting, {})
         evaluator_scores = setting_data.get("evaluator_scores", {})
@@ -178,6 +191,34 @@ def _table_performance(report: dict[str, Any], setting: str = "oracle") -> str:
                 _comprehensive_score_percent(setting_data),
             ]
         )
+    return numeric_rows
+
+
+def _table_performance(
+    report: dict[str, Any],
+    setting: str = "oracle",
+    each_reports: list[dict[str, Any]] | None = None,
+) -> str:
+    headers = [
+        "LLM",
+        "Reward Model",
+        "LLM-as-a-judge",
+        "Model-based Score",
+        "Location",
+        "Semantics",
+        "Actionable Suggestion Matching",
+        "Rule-based Score",
+        "Comprehensive Score",
+    ]
+    model_names = _collect_models(report)
+    numeric_rows = _extract_performance_rows(report, model_names, setting)
+
+    std_rows: list[list[float]] | None = None
+    if each_reports:
+        all_rows = [
+            _extract_performance_rows(r, model_names, setting) for r in each_reports
+        ]
+        std_rows = _compute_std_rows(all_rows)
 
     best_cells = _bold_best_cells(
         numeric_rows, numeric_col_indices=range(len(headers) - 1)
@@ -188,7 +229,8 @@ def _table_performance(report: dict[str, Any], setting: str = "oracle") -> str:
         values = numeric_rows[row_idx]
         formatted = []
         for col_idx, v in enumerate(values):
-            cell = _format_number(v)
+            std = std_rows[row_idx][col_idx] if std_rows else None
+            cell = _format_number(v, std)
             if (row_idx, col_idx) in best_cells:
                 cell = f"**{cell}**"
             formatted.append(cell)
@@ -197,11 +239,10 @@ def _table_performance(report: dict[str, Any], setting: str = "oracle") -> str:
     return _render_markdown_table(headers, rows)
 
 
-def _table_problem_domains(report: dict[str, Any]) -> str:
-    headers = ["LLM", *PROBLEM_DOMAIN_COL_ORDER]
+def _extract_problem_domain_rows(
+    report: dict[str, Any], model_names: list[str]
+) -> list[list[float]]:
     numeric_rows: list[list[float]] = []
-    model_names = _collect_models(report)
-
     for model in model_names:
         oracle = report["model_results"][model]["settings"].get("oracle", {})
         domain_scores = oracle.get("metadata_scores", {}).get("problem_domain", {})
@@ -214,6 +255,21 @@ def _table_problem_domains(report: dict[str, Any]) -> str:
             by_abbrev[abbr] = _percent(stats.get("average_score"))
 
         numeric_rows.append([by_abbrev[a] for a in PROBLEM_DOMAIN_COL_ORDER])
+    return numeric_rows
+
+
+def _table_problem_domains(
+    report: dict[str, Any],
+    each_reports: list[dict[str, Any]] | None = None,
+) -> str:
+    headers = ["LLM", *PROBLEM_DOMAIN_COL_ORDER]
+    model_names = _collect_models(report)
+    numeric_rows = _extract_problem_domain_rows(report, model_names)
+
+    std_rows: list[list[float]] | None = None
+    if each_reports:
+        all_rows = [_extract_problem_domain_rows(r, model_names) for r in each_reports]
+        std_rows = _compute_std_rows(all_rows)
 
     best_cells = _bold_best_cells(
         numeric_rows,
@@ -224,7 +280,8 @@ def _table_problem_domains(report: dict[str, Any]) -> str:
     for row_idx, model in enumerate(model_names):
         formatted = []
         for col_idx, v in enumerate(numeric_rows[row_idx]):
-            cell = _format_number(v)
+            std = std_rows[row_idx][col_idx] if std_rows else None
+            cell = _format_number(v, std)
             if (row_idx, col_idx) in best_cells:
                 cell = f"**{cell}**"
             formatted.append(cell)
@@ -233,11 +290,10 @@ def _table_problem_domains(report: dict[str, Any]) -> str:
     return _render_markdown_table(headers, rows)
 
 
-def _table_context(report: dict[str, Any]) -> str:
-    headers = ["LLM", *[label for _, label in CONTEXT_COLUMNS]]
+def _extract_context_rows(
+    report: dict[str, Any], model_names: list[str]
+) -> list[list[float]]:
     numeric_rows: list[list[float]] = []
-    model_names = _collect_models(report)
-
     for model in model_names:
         settings = report["model_results"][model].get("settings", {})
         numeric_rows.append(
@@ -246,6 +302,21 @@ def _table_context(report: dict[str, Any]) -> str:
                 for key, _ in CONTEXT_COLUMNS
             ]
         )
+    return numeric_rows
+
+
+def _table_context(
+    report: dict[str, Any],
+    each_reports: list[dict[str, Any]] | None = None,
+) -> str:
+    headers = ["LLM", *[label for _, label in CONTEXT_COLUMNS]]
+    model_names = _collect_models(report)
+    numeric_rows = _extract_context_rows(report, model_names)
+
+    std_rows: list[list[float]] | None = None
+    if each_reports:
+        all_rows = [_extract_context_rows(r, model_names) for r in each_reports]
+        std_rows = _compute_std_rows(all_rows)
 
     best_cells = _bold_best_cells(
         numeric_rows, numeric_col_indices=range(len(CONTEXT_COLUMNS))
@@ -255,7 +326,8 @@ def _table_context(report: dict[str, Any]) -> str:
     for row_idx, model in enumerate(model_names):
         formatted = []
         for col_idx, v in enumerate(numeric_rows[row_idx]):
-            cell = _format_number(v)
+            std = std_rows[row_idx][col_idx] if std_rows else None
+            cell = _format_number(v, std)
             if (row_idx, col_idx) in best_cells:
                 cell = f"**{cell}**"
             formatted.append(cell)
@@ -264,11 +336,10 @@ def _table_context(report: dict[str, Any]) -> str:
     return _render_markdown_table(headers, rows)
 
 
-def _table_difficulty(report: dict[str, Any]) -> str:
-    headers = ["LLM", "Low", "Medium", "High"]
+def _extract_difficulty_rows(
+    report: dict[str, Any], model_names: list[str]
+) -> list[list[float]]:
     numeric_rows: list[list[float]] = []
-    model_names = _collect_models(report)
-
     for model in model_names:
         oracle = report["model_results"][model]["settings"].get("oracle", {})
         difficulty_scores = oracle.get("metadata_scores", {}).get("difficulty", {})
@@ -278,6 +349,21 @@ def _table_difficulty(report: dict[str, Any]) -> str:
                 for k in DIFFICULTY_ORDER
             ]
         )
+    return numeric_rows
+
+
+def _table_difficulty(
+    report: dict[str, Any],
+    each_reports: list[dict[str, Any]] | None = None,
+) -> str:
+    headers = ["LLM", "Low", "Medium", "High"]
+    model_names = _collect_models(report)
+    numeric_rows = _extract_difficulty_rows(report, model_names)
+
+    std_rows: list[list[float]] | None = None
+    if each_reports:
+        all_rows = [_extract_difficulty_rows(r, model_names) for r in each_reports]
+        std_rows = _compute_std_rows(all_rows)
 
     best_cells = _bold_best_cells(
         numeric_rows, numeric_col_indices=range(len(DIFFICULTY_ORDER))
@@ -287,7 +373,8 @@ def _table_difficulty(report: dict[str, Any]) -> str:
     for row_idx, model in enumerate(model_names):
         formatted = []
         for col_idx, v in enumerate(numeric_rows[row_idx]):
-            cell = _format_number(v)
+            std = std_rows[row_idx][col_idx] if std_rows else None
+            cell = _format_number(v, std)
             if (row_idx, col_idx) in best_cells:
                 cell = f"**{cell}**"
             formatted.append(cell)
@@ -296,11 +383,10 @@ def _table_difficulty(report: dict[str, Any]) -> str:
     return _render_markdown_table(headers, rows)
 
 
-def _table_effort(report: dict[str, Any]) -> str:
-    headers = ["LLM", "Effort-1", "Effort-2", "Effort-3", "Effort-4", "Effort-5"]
+def _extract_effort_rows(
+    report: dict[str, Any], model_names: list[str]
+) -> list[list[float]]:
     numeric_rows: list[list[float]] = []
-    model_names = _collect_models(report)
-
     for model in model_names:
         oracle = report["model_results"][model]["settings"].get("oracle", {})
         effort_scores = oracle.get("metadata_scores", {}).get(
@@ -312,6 +398,21 @@ def _table_effort(report: dict[str, Any]) -> str:
                 for k in EFFORT_ORDER
             ]
         )
+    return numeric_rows
+
+
+def _table_effort(
+    report: dict[str, Any],
+    each_reports: list[dict[str, Any]] | None = None,
+) -> str:
+    headers = ["LLM", "Effort-1", "Effort-2", "Effort-3", "Effort-4", "Effort-5"]
+    model_names = _collect_models(report)
+    numeric_rows = _extract_effort_rows(report, model_names)
+
+    std_rows: list[list[float]] | None = None
+    if each_reports:
+        all_rows = [_extract_effort_rows(r, model_names) for r in each_reports]
+        std_rows = _compute_std_rows(all_rows)
 
     best_cells = _bold_best_cells(
         numeric_rows, numeric_col_indices=range(len(EFFORT_ORDER))
@@ -321,7 +422,8 @@ def _table_effort(report: dict[str, Any]) -> str:
     for row_idx, model in enumerate(model_names):
         formatted = []
         for col_idx, v in enumerate(numeric_rows[row_idx]):
-            cell = _format_number(v)
+            std = std_rows[row_idx][col_idx] if std_rows else None
+            cell = _format_number(v, std)
             if (row_idx, col_idx) in best_cells:
                 cell = f"**{cell}**"
             formatted.append(cell)
@@ -337,12 +439,27 @@ def main() -> None:
         epilog="""
 Example:
   python scripts/print_eval_report_markdown_tables.py results/.../report_all.json
+
+  # With per-evaluator std dev:
+  python scripts/print_eval_report_markdown_tables.py results/.../report_all.json \\
+      --each results/.../report_evaluator_A.json \\
+      --each results/.../report_evaluator_B.json \\
+      --each results/.../report_evaluator_C.json
 """,
     )
     parser.add_argument(
         "report_file",
         type=Path,
         help="Path to report JSON generated by scripts/eval_report.py",
+    )
+    parser.add_argument(
+        "--each",
+        type=Path,
+        action="append",
+        dest="each_reports",
+        default=None,
+        help="Per-evaluator report JSON (repeatable). When provided, each cell "
+        "shows mean ± std dev computed across these reports.",
     )
     args = parser.parse_args()
 
@@ -352,25 +469,33 @@ Example:
 
     report = _load_report(report_file)
 
+    each_reports: list[dict[str, Any]] | None = None
+    if args.each_reports:
+        each_reports = []
+        for p in args.each_reports:
+            if not p.exists():
+                raise FileNotFoundError(f"Report file not found: {p}")
+            each_reports.append(_load_report(p))
+
     print("### LLM Performance Score (%) under SWE-CARE Benchmark (oracle)")
-    print(_table_performance(report, setting="oracle"))
+    print(_table_performance(report, setting="oracle", each_reports=each_reports))
     print()
     print("### LLM Performance Score (%) under SWE-CARE Benchmark (none)")
-    print(_table_performance(report, setting="none"))
+    print(_table_performance(report, setting="none", each_reports=each_reports))
     print()
     print("### LLM's Comprehensive Score (%) in Different Problem Domains (oracle)")
-    print(_table_problem_domains(report))
+    print(_table_problem_domains(report, each_reports=each_reports))
     print()
     print("### LLM's Comprehensive Score (%) in Different Context")
-    print(_table_context(report))
+    print(_table_context(report, each_reports=each_reports))
     print()
     print("### LLM's Comprehensive Score (%) in Different difficulty (oracle)")
-    print(_table_difficulty(report))
+    print(_table_difficulty(report, each_reports=each_reports))
     print()
     print(
         "### LLM's Comprehensive Score (%) in Different estimated review effort (oracle)"
     )
-    print(_table_effort(report))
+    print(_table_effort(report, each_reports=each_reports))
 
 
 if __name__ == "__main__":

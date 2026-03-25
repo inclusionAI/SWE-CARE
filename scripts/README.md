@@ -205,3 +205,14 @@ Print markdown tables from an `eval_report.py` JSON report (e.g., `report_all.js
 ```bash
 python scripts/print_eval_report_markdown_tables.py results/exp/report_all.json
 ```
+
+To include standard deviation across per-evaluator reports, use the `--each` flag (repeatable):
+
+```bash
+python scripts/print_eval_report_markdown_tables.py results/exp/report_all.json \
+    --each results/exp/report_evaluator_A.json \
+    --each results/exp/report_evaluator_B.json \
+    --each results/exp/report_evaluator_C.json
+```
+
+Each numeric cell will be formatted as `mean ± std`.
