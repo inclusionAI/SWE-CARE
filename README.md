@@ -408,7 +408,7 @@ The evaluation harness is used to assess model predictions on the code review ta
 1. **LLM Evaluator** (`llm_evaluator`): Evaluates code review quality based on multiple dimensions (functionality, quality, style, documentation).
 2. **Rule-based Evaluator** (`rule_based_evaluator`): Extracts defects from review text and compares them with reference defects.
 
-**Note**: The reward model evaluator mentioned in the paper is still work-in-progress and the reward model is about to be open-sourced.
+**Note**: The reward model evaluator mentioned in the paper is available on [Huggingface](https://huggingface.co/codefuse-ai/SWE-CARE-RM).
 
 ### Supported Model Providers for Evaluation
 
